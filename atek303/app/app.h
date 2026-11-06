@@ -13,8 +13,8 @@
 void app_splash(void);
 
 /* the store: the app's settings, the panel calibration (the platform's), and their flash offsets */
-enum { OBJ_SETTINGS, OBJ_PANEL, OBJ_NOBJ };
-#define APP_STORE_MAP {0xFC000u, 0xDC000u}
+enum { OBJ_SETTINGS, OBJ_PANEL, OBJ_PRESETS_A, OBJ_PRESETS_B, OBJ_NOBJ };   /* presets: 16 in each */
+#define APP_STORE_MAP {0xFC000u, 0xDC000u, 0xD8000u, 0xDA000u}
 
 void app_init(void);
 void app_render(int32_t *lr, uint32_t n, uint32_t master_q12);

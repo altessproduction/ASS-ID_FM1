@@ -1,0 +1,69 @@
+# Presets y su lista: app/build/host/atek303_host app/tests/presets.txt app/build/host
+wait 600
+expect npresets 0
+tap SAVE
+wait 60
+expect npresets 1
+expect preset 0
+turn K1 20
+wait 30
+expect cutoff 55
+tap SAVE
+wait 60
+expect npresets 2
+expect preset 1
+# el primer giro de PRESETS abre la lista en el cargado; los siguientes mueven y cargan
+turn PRESET 1
+wait 60
+expect list 1
+expect listcur 1
+turn PRESET -1
+wait 60
+expect preset 0
+expect cutoff 35
+shot list.png
+turn PRESET 1
+wait 60
+expect preset 1
+expect cutoff 55
+# SAVE mantenido: encima del cargado, sin crear otro
+turn K1 10
+wait 30
+press SAVE
+wait 1200
+release SAVE
+wait 60
+expect npresets 2
+turn PRESET -1
+wait 60
+turn PRESET 1
+wait 60
+expect cutoff 65
+# borrar: ENV dos veces (la primera solo avisa)
+turn PRESET -1
+wait 60
+expect listcur 0
+tap ENV
+wait 60
+expect npresets 2
+tap ENV
+wait 60
+expect npresets 1
+shot list_deleted.png
+# SAVE en el hueco vacío seleccionado
+tap SAVE
+wait 60
+expect npresets 2
+expect preset 0
+# HOME cierra la lista; y se cierra sola a los 6 s
+tap HOME
+wait 30
+expect list 0
+turn PRESET 1
+wait 30
+expect list 1
+wait 6500
+expect list 0
+reboot
+wait 600
+expect npresets 2

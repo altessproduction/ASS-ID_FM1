@@ -41,6 +41,7 @@ Eriksson como issue o PR. Si se vuelve a clonar el emulador, hay que aplicarlo o
 ### Notas del banco de pruebas
 
 - `fm1-emu` (sin JIT) acepta notas MIDI con `--keys "T:midi:90247f"`, y así se midió la CPU.
+- En `--keys`, los encoders del emulador van con otra numeración que `plat.h`: el encoder PRESETS es `enc6`.
 - En `fm1-live --bench`, la entrada por guion (MIDI, botones) no le llegó a ningún firmware, ni a
   X0X: para medir se compiló una variante con la demo arrancando sola.
 
@@ -111,6 +112,33 @@ borran lo editado (REC lo recupera si fue lo último).
 Cambio de botones: mutar slides y acentos pasa de EDIT a **ARP**.
 
 Pruebas del simulador: `app/tests/basic.txt` (25), `fx.txt` y `editor.txt`, todas pasan.
+
+## Presets (2026-11-06)
+
+32 presets, 16 en cada uno de dos objetos de la memoria de fm1-base (con copia A/B y CRC: un corte de
+luz a mitad de una escritura no los pierde). Cada preset guarda todo menos la página: patrón (con su
+semilla y mutaciones), voz, efectos, pasos, escala, raíz, tempo, octava y LOCK.
+
+- **SAVE** (pulsar y soltar): un preset nuevo en el siguiente hueco libre, con un nombre acid
+  aleatorio de dos palabras («SQUELCH TRIP», «SNAKE LOOP»…). Si están los 32, va al hueco siguiente
+  al último guardado, encima del que hubiera. También guarda el estado con el que arranca.
+- **SAVE mantenido 1 s**: guarda encima del preset cargado y conserva su nombre.
+- **Encoder PRESETS**: el primer giro abre la **lista de presets** (los 32 huecos, 8 a la vista) en el
+  cargado; los siguientes mueven el cursor y cargan al momento el preset que pisa. En la lista:
+  **ENV dos veces** (en 2 s) borra el seleccionado, porque la primera solo avisa; **SAVE en un hueco
+  vacío** guarda ahí; **HOME** la cierra. Si no se toca, se cierra sola a los 6 s.
+
+Prueba: `app/tests/presets.txt` (guardar, cambiar, recargar, sobrescribir y reiniciar).
+
+## Recuperación
+
+Viene de fm1-base y no hay que hacer nada:
+- **Modo seguro**: si el firmware falla o se cuelga dos veces al arrancar, entra solo en un modo sin
+  sonido con el USB activo; ahí PLAY lo reintenta y REC entra en el modo de actualización del chip.
+- **REC pulsado al encender**: el modo de actualización del chip (el disco «WL82 UBOOT» de las
+  herramientas de rescate, ver `../docs/03-rescate.md`).
+- **La vía de actualización por USB** sigue viva con el firmware en marcha: cualquier instalador o The
+  Firmware Hub pueden poner otro firmware o el oficial.
 
 ## Pantalla de arranque
 
