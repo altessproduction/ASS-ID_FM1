@@ -29,6 +29,8 @@ plataforma con un motor que ya es nuestro. Licencia GPL-3.0-or-later, como el AT
       después de copiar la flash entera; Javier: «funciona genial». En Linux, siempre `--classic`: la instalación
       rápida se quedó al 2 % («USB LOST»).
 - [x] HOME recorre VCF, VOICE, PATT y SEQ (probado en el FM-1 real).
+- [x] **1.0** (`FM-1_330010000`): entra desde la V15 y desde otro firmware (AMB-1), y se sale de él. Ficha del hub en
+      `../fmhub.json`, portada en `art/cover.jpg`. Release: `./build.sh --release X.Y` y el `.fwsc` a la release de GitHub.
 - Es **nuestro firmware base**: se queda así, sin más motores (los de Plaits y la caja de ritmos, aparte).
 
 ### Arreglo en el emulador (local, en `terceros/fm1-emu`)
