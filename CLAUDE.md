@@ -2,7 +2,7 @@
 
 Investigación y desarrollo de firmwares para el **M-VAVE FM-1**: el emulador (fm1-emu), los
 firmwares de la comunidad, el rescate de un FM-1 bloqueado y el firmware propio de Animatek.
-Empezado el 2026-11-06. Git local, sin remote hasta que Javier diga. En español.
+Empezado el 2026-11-06. Público en GitHub desde el 2026-11-06: `animatek/FM1-Animatek`, GPL-3.0. En español.
 
 Empieza por `README.md`; lo que se sabe está en `docs/` (01 cómo funciona, 02 emulador,
 03 rescate, 04 firmwares existentes, 05 ideas).
