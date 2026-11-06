@@ -1,0 +1,13 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# ATEK303's words for a screen reader (fm1-reader): the text on the screen <TAB> what to say.
+# url: https://animatek.net/atek303/words/
+ATEK303	atek 303
+CUTOFF	cutoff
+RESO	resonance
+ENV MOD	envelope modulation
+DECAY	decay
+ACCENT	accent
+TUNE	tune
+WAVE	wave
+SAW	saw
+SQUARE	square

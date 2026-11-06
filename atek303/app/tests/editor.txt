@@ -1,0 +1,80 @@
+# El editor de pasos: app/build/host/atek303_host app/tests/editor.txt app/build/host
+wait 600
+tap EDIT
+wait 30
+expect edit 1
+expect cursor 0
+shot editor.png
+# una tecla pone la nota del paso 1 y pasa al 2 (octava -1: la tecla 7 es C3 = raíz + 12)
+key 7 down
+wait 30
+key 7 up
+wait 30
+expect gate0 1
+expect semi0 12
+expect cursor 1
+# K3: el gate del paso 2 (REST -> NOTE -> TIE)
+turn K3 1
+wait 30
+turn K3 1
+wait 30
+expect gate1 2
+# volvemos al paso 1: acento y slide
+turn K1 -1
+wait 30
+expect cursor 0
+tap ENV
+wait 30
+expect acc0 1
+# K2: una octava arriba (UP)
+turn K2 1
+wait 30
+expect semi0 24
+# K4: un semitono arriba, fuera de la escala ACID: pasa a cromática
+turn K4 1
+wait 30
+expect semi0 25
+expect scale 7
+# deshacer
+tap REC
+wait 30
+expect semi0 24
+shot editor2.png
+# slides (LFO): hacia la misma nota (legato) y hacia otra nota se quedan; hacia un silencio también se
+# guarda, aunque no suene
+turn K1 3
+wait 30
+key 7 down
+wait 20
+key 7 up
+wait 20
+key 7 down
+wait 20
+key 7 up
+wait 20
+key 9 down
+wait 20
+key 9 up
+wait 20
+turn K1 -3
+wait 30
+tap LFO
+wait 30
+expect sld3 1
+turn K1 1
+wait 30
+tap LFO
+wait 30
+expect sld4 1
+turn K1 1
+wait 30
+tap LFO
+wait 30
+expect sld5 1
+tap LFO
+wait 30
+expect sld5 0
+shot slides.png
+tap EDIT
+wait 30
+expect edit 0

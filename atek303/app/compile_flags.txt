@@ -1,0 +1,3 @@
+-I../base/include
+-Idsp
+-std=c99

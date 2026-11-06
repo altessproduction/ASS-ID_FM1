@@ -1,0 +1,19 @@
+# ATEK303's build settings (fm1-base's tools/build.py: ./build.sh)
+name = "ATEK303"               # the build's files: atek303.fwsc
+id_prefix = "FM-1_303"         # package identity: dev FM-1_30300 (por confirmar que no choca con otro firmware)
+usb_manufacturer = "Animatek"
+usb_product = "ATEK303 FM-1"
+ble = false                    # sin radio de momento
+usb_audio_in = true            # el 303 se graba por USB
+usb_audio_out = false
+words = "words.tsv"
+include = ["dsp"]
+o2 = ["dsp/atek_voice.c", "dsp/acid_pattern.c", "dsp/fx.c"]   # el motor, el generador y los efectos, a -O2
+# el sitio
+tagline = "The ATEK303 acid voice on the M-VAVE FM-1"
+repo = ""
+licence = "GPL-3.0-or-later"
+credits = "Built on fm1-base (Charles Vestal) and felucca-bsp (Hügelton Instruments). The voice is ATEK303 by Animatek, on Open303 by Robin Schmidt."
+author = "Animatek"
+description = "ATEK303 turns the M-VAVE FM-1 into a TB-303 voice: the ATEK303 engine from VCV Rack, with its diode ladder and its oscillator modelled on the schematic, played from the keys or over MIDI."
+tags = ["synth", "sequencer"]

@@ -1,0 +1,37 @@
+# Los efectos en el simulador host: app/build/host/atek303_host app/tests/fx.txt app/build/host
+# páginas: 5 DELAY, 6 CHORUS, 7 DRIVE, 8 REVERB (el sonido va drive -> chorus -> delay -> reverb)
+wait 600
+tap FX
+wait 30
+expect page 4
+turn K4 35
+wait 30
+expect dly_mix 35
+shot delay.png
+tap FX
+wait 30
+expect page 5
+turn K4 30
+shot chorus.png
+tap FX
+wait 30
+expect page 6
+turn K1 2
+wait 30
+expect drive_type 2
+turn K2 10
+shot drive.png
+tap FX
+wait 30
+expect page 7
+turn K4 30
+shot reverb.png
+wav fx.wav
+tap PLAY
+wait 3000
+tap PLAY
+wait 1500
+wavstop
+tap FX
+wait 30
+expect page 4

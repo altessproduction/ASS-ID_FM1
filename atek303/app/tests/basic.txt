@@ -1,0 +1,90 @@
+# ATEK303 en el simulador host: ./build.sh --host, luego
+#   app/build/host/atek303_host app/tests/basic.txt app/build/host
+wait 600
+shot boot.png
+expect running 0
+expect tempo 125
+# parado: las teclas tocan la voz, legato = slide
+key 7 down
+wait 30
+expect note 48
+expect slide 0
+key 9 down
+wait 30
+expect note 50
+expect slide 1
+key 9 up
+wait 30
+expect note 48
+key 7 up
+wait 30
+expect note -1
+# el secuenciador
+wav seq.wav
+tap PLAY
+wait 30
+expect running 1
+wait 400
+expect step 4
+shot seq.png
+# GENERATE: semilla nueva; mutaciones y deshacer (las cuentas son las de esta semilla: una ráfaga
+# puede gastar un índice de más si dos operaciones se anulan)
+tap SEQ
+wait 60
+expect mutations 0
+tap ENV
+wait 60
+expect mutations 2
+tap LFO
+wait 60
+expect mutations 5
+tap REC
+wait 60
+expect mutations 2
+# LOCK: GENERATE muta las tres capas
+tap GLO
+wait 30
+expect locked 1
+tap SEQ
+wait 60
+expect mutations 9
+# transportar con una tecla mientras suena (tecla 9 = D en octava -1)
+key 9 down
+wait 30
+key 9 up
+wait 30
+expect root 2
+# páginas del patrón
+turn SELECT 2
+wait 30
+expect page 2
+shot pattern.png
+turn SELECT 1
+wait 30
+turn K3 5
+wait 30
+expect tempo 130
+shot pattern2.png
+wait 600
+wavstop
+tap PLAY
+wait 30
+expect running 0
+# HOME: directo a la página 1 (CUTOFF), también desde el editor
+turn SELECT 3
+wait 30
+tap EDIT
+wait 30
+tap HOME
+wait 30
+expect page 0
+expect edit 0
+tap SAVE
+wait 30
+expect dirty 0
+reboot
+wait 600
+expect root 2
+expect tempo 130
+expect mutations 9
+expect locked 1

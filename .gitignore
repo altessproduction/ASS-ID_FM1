@@ -1,0 +1,15 @@
+# Código de otros: se clona con herramientas/clonar-terceros.sh, no entra en Git
+terceros/
+# Firmwares descargados (de la comunidad o de M-VAVE): se bajan otra vez, nunca entran
+firmwares/descargas/
+*.fwsc
+*.fm1save
+# Copias de la flash de un FM-1 real: llevan sonidos, ajustes y el firmware de M-VAVE
+backups/*
+!backups/README.md
+*.bin
+# Compilados
+target/
+build/
+atek303/tests/build/
+atek303/app/web/

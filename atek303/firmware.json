@@ -1,0 +1,16 @@
+{
+  "schema": 1,
+  "id": "atek303",
+  "name": "Animatek",
+  "author": "Animatek",
+  "license": "GPL-3.0-or-later",
+  "tagline": "The ATEK303 acid voice on the M-VAVE FM-1",
+  "description": "ATEK303 turns the M-VAVE FM-1 into a TB-303 voice: the ATEK303 engine from VCV Rack, with its diode ladder and its oscillator modelled on the schematic, played from the keys or over MIDI.",
+  "tags": ["synth", "sequencer"],
+  "hardware": {
+    "models": ["FM-1"],
+    "flash": ["856014", "B36014"],
+    "features": ["usb-audio-in", "velocity", "pressure", "screen-reader"]
+  },
+  "credits": "Built on fm1-base (Charles Vestal) and felucca-bsp (Hügelton Instruments). The voice is ATEK303 by Animatek, on Open303 by Robin Schmidt."
+}
