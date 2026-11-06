@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ATEK303 for M-VAVE FM-1 · Cheat sheet</title>
+<meta name="description" content="ATEK303 cheat sheet: buttons, pages, sequencer, step editor, presets and MIDI of the acid firmware for the M-VAVE FM-1.">
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Inter:ital,wght@0,500;0,700;0,800;0,900;1,900&family=JetBrains+Mono:wght@700&display=swap');
+:root{--acid:#F5E60A;--amber:#FD9A00;--blue:#2C7FFF;--ink:#0b0c0e;--card:#16181C;--line:#2a2e35;--txt:#e8ecf3;--dim:#9AA2B5}
+*{box-sizing:border-box}
+@page{size:A4 landscape;margin:0}
+html,body{margin:0;background:var(--ink);color:var(--txt);font-family:Inter,sans-serif;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+.sheet{width:297mm;height:210mm;margin:0 auto;padding:9mm 10mm 7mm;position:relative;overflow:hidden;
+  background:radial-gradient(circle at 92% 8%,rgba(245,230,10,.10),transparent 32%),radial-gradient(circle at 5% 100%,rgba(44,127,255,.10),transparent 35%),var(--ink)}
+.checker{position:absolute;left:0;right:0;height:5mm;background:repeating-conic-gradient(var(--acid) 0 25%,#000 0 50%) 0 0/5mm 5mm;opacity:.9}
+.checker.top{top:0}.checker.bottom{bottom:0}
+header{display:flex;align-items:center;gap:6mm;margin:2mm 0 3mm}
+header img.smiley{width:21mm;height:21mm;image-rendering:pixelated;border-radius:50%;box-shadow:0 0 0 1.2mm var(--acid),0 0 9mm rgba(245,230,10,.45)}
+h1{margin:0;font-size:15mm;line-height:.9;font-weight:900;font-style:italic;letter-spacing:-.6mm}
+h1 span{color:var(--acid)}
+.sub{font-size:3.6mm;font-weight:800;letter-spacing:.9mm;color:var(--dim);margin-top:1.6mm;text-transform:uppercase}
+.sub b{color:var(--blue)}
+.tag{margin-left:auto;text-align:right;font-size:3mm;color:var(--dim);line-height:1.45}
+.tag strong{display:inline-block;background:var(--acid);color:#000;padding:.8mm 2.4mm;border-radius:1mm;font-weight:900;letter-spacing:.4mm;margin-bottom:1.2mm}
+.grid{display:grid;grid-template-columns:1fr 1.18fr 1fr;gap:4.5mm}
+.box{background:var(--card);border:.3mm solid var(--line);border-radius:2.5mm;padding:3.2mm 3.6mm;margin-bottom:3mm}
+h2{margin:0 0 2.2mm;font-size:4.1mm;font-weight:900;letter-spacing:.5mm;text-transform:uppercase;display:flex;align-items:center;gap:2mm}
+h2::before{content:"";width:2.6mm;height:2.6mm;background:var(--acid);transform:rotate(45deg)}
+h2.blue::before{background:var(--blue)}h2.amber::before{background:var(--amber)}
+table{width:100%;border-collapse:collapse;font-size:2.95mm}
+td{padding:.55mm 0;vertical-align:top;border-bottom:.2mm solid #23262c}
+tr:last-child td{border-bottom:0}
+td:first-child{width:23mm;white-space:nowrap}
+.ed td:first-child{width:27mm}
+.k{display:inline-block;font-family:'JetBrains Mono',monospace;font-size:2.6mm;font-weight:700;background:#2a2e35;border:.25mm solid #3a3f48;border-bottom-width:.6mm;border-radius:.8mm;padding:.2mm 1.3mm;color:#fff}
+.k.acid{background:var(--acid);color:#000;border-color:#b9ad00}
+ol{margin:0;padding-left:4.5mm;font-size:3.05mm;line-height:1.5}
+ol li::marker{color:var(--acid);font-weight:900}
+p{margin:0;font-size:2.95mm;line-height:1.45;color:#cfd5df}
+p+p{margin-top:1.4mm}
+.pages{display:grid;grid-template-columns:1fr 1fr;gap:2.2mm}
+.page{border:.3mm solid var(--line);border-radius:1.8mm;padding:1.8mm 2.2mm;background:#101215}
+.page .t{display:flex;justify-content:space-between;align-items:baseline;font-size:3.1mm;font-weight:900;letter-spacing:.3mm}
+.page .t span{font-family:'JetBrains Mono',monospace;color:var(--acid);font-size:2.6mm}
+.page.fx .t span{color:var(--blue)}
+.knobs{display:grid;grid-template-columns:repeat(4,1fr);gap:1mm;margin-top:1.3mm}
+.knobs div{font-size:2.35mm;font-weight:800;text-align:center;background:#1c1f25;border-radius:.8mm;padding:.9mm .3mm;color:#dfe5ee}
+.knobs div i{display:block;font-style:normal;font-size:1.9mm;color:var(--dim);font-weight:700}
+.note{font-size:2.6mm;color:var(--dim);margin-top:1.8mm;line-height:1.4}
+.steps{display:flex;gap:.8mm;margin:1.6mm 0 .4mm}
+.steps i{flex:1;height:3.4mm;border-radius:.5mm;background:#2a2e35}
+.steps i.n{background:var(--blue)}.steps i.t{background:#1E4E9C}.steps i.a{background:#CFE6FF}.steps i.s{background:#00C2FF}
+.legend{display:flex;gap:3mm;font-size:2.3mm;color:var(--dim)}
+.legend b{display:inline-block;width:2.4mm;height:2.4mm;border-radius:.4mm;vertical-align:-.3mm;margin-right:.8mm}
+.cc{display:grid;grid-template-columns:repeat(4,1fr);gap:1mm;margin-top:1.4mm}
+.cc div{background:#101215;border:.25mm solid var(--line);border-radius:.8mm;text-align:center;padding:.8mm 0;font-size:2.4mm;font-weight:800}
+.cc div span{display:block;font-family:'JetBrains Mono',monospace;color:var(--acid);font-size:2.9mm}
+footer{position:absolute;left:10mm;right:10mm;bottom:7mm;display:flex;justify-content:space-between;font-size:2.3mm;color:#6f7787}
+footer b{color:var(--dim)}
+@media screen and (max-width:1150px){.sheet{width:100%;height:auto;padding:24px 16px 60px}footer{position:static;flex-direction:column;gap:6px;margin-top:10px}.grid{grid-template-columns:1fr}h1{font-size:44px}}
+</style>
+</head>
+<body>
+<div class="sheet">
+<div class="checker top"></div>
+
+<header>
+  <img class="smiley" src="../art/splash-smiley.png" alt="ATEK303 acid smiley">
+  <div>
+    <h1>ATEK<span>303</span> <span style="color:var(--txt);font-size:.55em;letter-spacing:0">cheat sheet</span></h1>
+    <div class="sub">Acid firmware for the <b>M-VAVE FM-1</b> · by Animatek</div>
+  </div>
+  <div class="tag"><strong>PRESS PLAY</strong><br>a line plays · turn the knobs · it moves<br>v1.0 · GPL-3.0 · github.com/animatek/FM1-Animatek</div>
+</header>
+
+<div class="grid">
+<!-- column 1 -->
+<div>
+  <div class="box">
+    <h2>Quick start</h2>
+    <ol>
+      <li><span class="k acid">PLAY</span> starts the pattern.</li>
+      <li><span class="k">K1</span>–<span class="k">K4</span> cutoff, reso, env mod, decay.</li>
+      <li><span class="k">SEQ</span> a brand-new acid line.</li>
+      <li><span class="k">ENV</span> <span class="k">LFO</span> <span class="k">ARP</span> mutate it; <span class="k">REC</span> undoes.</li>
+      <li>Press a key: the line transposes, like on a 303.</li>
+      <li><span class="k">SAVE</span> keeps it as a preset with an acid name.</li>
+    </ol>
+  </div>
+  <div class="box">
+    <h2 class="amber">Buttons</h2>
+    <table>
+      <tr><td><span class="k acid">PLAY</span></td><td>run / stop (internal clock, or MIDI clock)</td></tr>
+      <tr><td><span class="k">SEQ</span></td><td>GENERATE a new pattern (new seed)</td></tr>
+      <tr><td><span class="k">ENV</span></td><td>mutate TIME (rests, notes, ties)</td></tr>
+      <tr><td><span class="k">LFO</span></td><td>mutate NOTES (octaves)</td></tr>
+      <tr><td><span class="k">ARP</span></td><td>mutate SLIDES and ACCENTS</td></tr>
+      <tr><td><span class="k">REC</span></td><td>undo the last mutation or edit</td></tr>
+      <tr><td><span class="k">GLO</span></td><td>LOCK: SEQ mutates all instead of a new seed</td></tr>
+      <tr><td><span class="k">EDIT</span></td><td>step editor on / off</td></tr>
+      <tr><td><span class="k">HOME</span></td><td>VCF → VOICE → PATT → SEQ; from anywhere else, VCF</td></tr>
+      <tr><td><span class="k">FX</span></td><td>effect pages (again: the next one)</td></tr>
+      <tr><td><span class="k">SAVE</span></td><td>new preset · hold 1 s: save over the loaded one</td></tr>
+      <tr><td><span class="k">OCT−</span> <span class="k">OCT+</span></td><td>octave</td></tr>
+      <tr><td>keys</td><td>stopped: play the voice (hard = accent) · running: transpose</td></tr>
+    </table>
+  </div>
+</div>
+
+<!-- column 2 -->
+<div>
+  <div class="box">
+    <h2 class="blue">8 pages · SELECT · K1–K4</h2>
+    <div class="pages">
+      <div class="page"><div class="t">VCF <span>VOICE 1</span></div><div class="knobs"><div>CUTOFF</div><div>RESO</div><div>ENV MOD</div><div>DECAY</div></div></div>
+      <div class="page"><div class="t">VOICE <span>VOICE 2</span></div><div class="knobs"><div>ACCENT</div><div>TUNE</div><div>WAVE<i>saw/sqr</i></div><div>GATE<i>length</i></div></div></div>
+      <div class="page"><div class="t">PATT <span>PATTERN 1</span></div><div class="knobs"><div>DENSITY</div><div>RANGE</div><div>ACCENTS</div><div>SLIDES</div></div></div>
+      <div class="page"><div class="t">SEQ <span>PATTERN 2</span></div><div class="knobs"><div>STEPS<i>1–16</i></div><div>SCALE</div><div>TEMPO</div><div>ROOT</div></div></div>
+      <div class="page fx"><div class="t">DELAY <span>FX 1</span></div><div class="knobs"><div>TIME<i>1/16–1/4.</i></div><div>FEEDBACK</div><div>TONE</div><div>MIX</div></div></div>
+      <div class="page fx"><div class="t">CHORUS <span>FX 2</span></div><div class="knobs"><div>TYPE<i>chor/flang</i></div><div>RATE</div><div>DEPTH</div><div>MIX</div></div></div>
+      <div class="page fx"><div class="t">DRIVE <span>FX 3</span></div><div class="knobs"><div>TYPE<i>od/rat/fuzz</i></div><div>DRIVE</div><div>TONE</div><div>LEVEL</div></div></div>
+      <div class="page fx"><div class="t">REVERB <span>FX 4</span></div><div class="knobs"><div>DECAY</div><div>DAMP</div><div>PRE-DELAY</div><div>MIX</div></div></div>
+    </div>
+    <p class="note">DENSITY, RANGE, ACCENTS and SLIDES regrow the pattern from its seed in real time. SCALE and ROOT change at the output: the line keeps its shape. Signal: voice → drive → chorus → ping-pong delay (synced) → plate reverb.</p>
+  </div>
+  <div class="box">
+    <h2>Step editor · EDIT</h2>
+    <div class="steps"><i class="n"></i><i></i><i class="n"></i><i class="a"></i><i></i><i class="n"></i><i class="t"></i><i></i><i class="n"></i><i class="s"></i><i class="n"></i><i></i><i class="a"></i><i class="n"></i><i class="t"></i><i class="n"></i></div>
+    <div class="legend"><span><b style="background:var(--blue)"></b>note</span><span><b style="background:#1E4E9C"></b>tie</span><span><b style="background:#CFE6FF"></b>accent</span><span><b style="background:#00C2FF"></b>slide</span></div>
+    <table class="ed" style="margin-top:1.2mm">
+      <tr><td><span class="k">SELECT</span> <span class="k">K1</span></td><td>move the cursor over the steps</td></tr>
+      <tr><td>a key</td><td>sets the step's note and moves on</td></tr>
+      <tr><td><span class="k">K2</span> <span class="k">K3</span> <span class="k">K4</span></td><td>octave (UP/DOWN) · gate (REST, NOTE, TIE) · semitone</td></tr>
+      <tr><td><span class="k">ENV</span> <span class="k">LFO</span></td><td>toggle ACCENT · toggle SLIDE</td></tr>
+      <tr><td><span class="k">REC</span> · <span class="k">EDIT</span>/<span class="k">HOME</span></td><td>undo · leave the editor</td></tr>
+    </table>
+  </div>
+</div>
+
+<!-- column 3 -->
+<div>
+  <div class="box">
+    <h2 class="amber">Presets · 32 slots</h2>
+    <p><span class="k">SAVE</span> stores everything (pattern, voice, effects, tempo, scale, root) in the next free slot, with a random acid name. Hold it 1 s to save over the preset loaded.</p>
+    <p>Turn <span class="k">PRESETS</span>: the list opens and loads each preset as the cursor reaches it. <span class="k">ENV</span> twice deletes, <span class="k">SAVE</span> on an empty slot saves there, <span class="k">HOME</span> closes (or 6 s untouched).</p>
+  </div>
+  <div class="box">
+    <h2 class="blue">MIDI in</h2>
+    <p>Stopped: notes play the voice. Running: notes transpose. Clock, start, stop and continue drive the sequencer.</p>
+    <div class="cc">
+      <div><span>74</span>cutoff</div><div><span>71</span>reso</div><div><span>75</span>env mod</div><div><span>76</span>decay</div>
+      <div><span>77</span>accent</div><div><span>78</span>tune</div><div><span>79</span>wave</div><div><span>USB</span>audio to PC</div>
+    </div>
+  </div>
+  <div class="box">
+    <h2>Install · leave · rescue</h2>
+    <p>Install from The Firmware Hub (Chrome or Edge), charged battery, cable straight in. It carries the Felucca update loader: any installer can put another firmware or M-VAVE's back.</p>
+    <p>Fails to start twice? It drops to a safe mode (PLAY retries, REC updates). <span class="k">REC</span> held at power-on: the chip's update mode.</p>
+  </div>
+</div>
+</div>
+
+<footer>
+  <span><b>ATEK303</b> · the voice of the ATEK303 VCV Rack module (Open303 by Robin Schmidt, MIT) · built on fm1-base (Charles Vestal) and felucca-bsp (Hügelton Instruments)</span>
+  <span>Not affiliated with M-VAVE or Roland · TB-303 is a trademark of Roland Corporation · <b>animatek.net</b></span>
+</footer>
+<div class="checker bottom"></div>
+</div>
+</body>
+</html>

@@ -1,7 +1,10 @@
 {
   "what": "A TB-303 style acid synth with its own pattern generator: press PLAY and a line plays. Generate, mutate and undo patterns, edit steps in a piano roll, add drive, chorus, synced delay and plate reverb. The ATEK303 engine from VCV Rack, 32 presets, MIDI in and clock.",
   "author": "Animatek",
-  "kinds": ["synth"],
+  "kinds": [
+    "synth"
+  ],
+  "cheat": "https://animatek.github.io/FM1-Animatek/atek303/cheatsheet/",
   "image": "atek303/art/cover.jpg",
   "color": "#2C7FFF"
 }
