@@ -113,6 +113,26 @@ Cambio de botones: mutar slides y acentos pasa de EDIT a **ARP**.
 
 Pruebas del simulador: `app/tests/basic.txt` (25), `fx.txt` y `editor.txt`, todas pasan.
 
+## Movimientos grabados (quitados el 2026-11-06)
+
+Se probaron parameter locks (REC grababa por paso y había una vista de carriles con barras), pero a Javier no le
+convencieron y se quitaron el mismo día. El código, por si se retoma, quedó fuera del repo en el scratchpad de la
+sesión; con la descripción del changelog se puede rehacer.
+
+## Colores
+
+La paleta de los módulos Animatek de VCV (`../../VCV-Rack/UZZ-VCV-RACK/src/ui/CommonWidgets.hpp` y `AcidEditor.hpp`):
+fondo pizarra #16181C, valores en el azul de las pantallas #5DB7FF, barras y selección en el azul del logo #2C7FFF,
+rótulos #9AA2B5, grises #2C2C2C y #5A5A5A. La tira de pasos y el editor usan los colores del editor acid: nota
+#2C7FFF, tie #1E4E9C, acento #CFE6FF, slide #00C2FF y octava #7F9CC4. Van en `animatek_palette()`, que pisa la
+paleta de fm1-base al empezar la interfaz.
+
+## Navegador de páginas
+
+Al pie de las páginas de knobs hay una barra con 5 pestañas que se desplaza con la página (VCF, VOICE, PATT,
+SEQ, DELAY, CHOR, DRIVE, REVRB). La actual va recuadrada en el azul del logo, como en la referencia que mandó Javier,
+y hay flechas cuando quedan páginas a un lado. La tira de pasos queda justo encima.
+
 ## Presets (2026-11-06)
 
 32 presets, 16 en cada uno de dos objetos de la memoria de fm1-base (con copia A/B y CRC: un corte de
@@ -176,3 +196,23 @@ cd build && ./ref_render ref.wav && ./port_render port.wav && python3 ../compara
 ```
 
 Cada cambio del motor tiene que seguir pasando esta comparación (o explicar por qué no).
+
+## Plaits en el WAVE (aparcado el 2026-11-06 por decisión de Javier; el plan, por si se retoma)
+
+Plan del prototipo, ya investigado:
+- **Fuente:** el Plaits que lleva GATOR (`terceros/fm1-gator/third_party/eurorack`, MIT, commit 08460a69). Su único cambio útil:
+  `kSampleRate = FW_FS_HZ` en `plaits/dsp/dsp.h`; nosotros daremos `FW_FS_HZ = 44100` con un `fw_rate.h` propio.
+- **Modelos:** VA, WAVESHAPE, FORMANT (grain), HARMONIC (additive) y WAVETABLE. Ninguno lleva envolvente propia.
+- **Compilación:** fm1-base no compila C++. Hay que añadir a nuestra copia local de `tools/build.py` una opción `cxx`:
+  `pi32v2/bin/clang++` con las flags de GATOR (`-mcpu=r3 -mfprev1 -O2 -std=gnu++11 -fno-exceptions -fno-rtti
+  -fno-threadsafe-statics -fno-use-cxa-atexit -nostdinc++ -ffunction-sections -fdata-sections`), y en el host con `c++`.
+  Hacen falta unos shims propios, escritos por nosotros (GATOR los tiene en GPL-3.0-only): `<algorithm>` (min, max,
+  swap, fill, copy, sort), `<cmath>` y `<new>` (placement new), además de `__cxa_pure_virtual`.
+- **Integración en la voz:** Plaits a 44,1 kHz en bloques de 12. Su salida (×0,5) sustituye a `osc_sample()`, subida
+  a 4× por interpolación lineal, antes del filtro de diodos. La nota sale de `inst_freq` en cada bloque (así el slide
+  sigue funcionando).
+- **Pantalla:** página OSC nueva en la posición 3 (MODEL, HARMONICS, TIMBRE, MORPH). WAVE muestra la misma lista. Al
+  insertar la página cambian los índices: FX pasa a las páginas 5-8 → 6-9, y hay que actualizar las pruebas. Cambia
+  el formato de los ajustes, así que los presets anteriores se pierden (avisar a Javier).
+- **Medir:** la CPU en el emulador con la demo y todos los efectos (`--keys "700-800:PLAY"`, variante con los efectos
+  activados). Ojo: según el código de fm1-base, el FM-1 corre a 360 MHz y el emulador a 240.

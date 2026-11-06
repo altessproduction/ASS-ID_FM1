@@ -47,6 +47,25 @@
 #include "acid_pattern.h"
 #include "fx.h"
 
+/* the Animatek palette, as on the VCV Rack modules (UZZ-VCV-RACK src/ui/CommonWidgets.hpp, AcidEditor.hpp):
+ * the screens are slate, the values in the displays' blue, the selection in the logo's blue */
+#undef C_BLACK
+#define C_BLACK RGB(0x16, 0x18, 0x1C)          /* the panels' slate */
+#define C_LOGO RGB(0x2C, 0x7F, 0xFF)           /* the logo's blue: bars, the page selected, the cursor */
+#define AK_NOTE RGB(0x2C, 0x7F, 0xFF)          /* the acid editor's colours */
+#define AK_TIE RGB(0x1E, 0x4E, 0x9C)
+#define AK_ACCENT RGB(0xCF, 0xE6, 0xFF)
+#define AK_SLIDE RGB(0x00, 0xC2, 0xFF)
+#define AK_OCTAVE RGB(0x7F, 0x9C, 0xC4)
+static void animatek_palette(void)              /* over fm1-base's (gfx.c pal[]: C_LINE, C_DIM, C_GRAY, C_AMB, C_HI) */
+{
+    pal[0] = RGB(0x2C, 0x2C, 0x2C);            /* rules, empty bars */
+    pal[1] = RGB(0x5A, 0x5A, 0x5A);            /* inactive */
+    pal[2] = RGB(0x9A, 0xA2, 0xB5);            /* labels */
+    pal[3] = RGB(0x7F, 0x9C, 0xC4);            /* secondary */
+    pal[4] = RGB(0x5D, 0xB7, 0xFF);            /* values: the displays' blue */
+}
+
 #define SET_MAGIC 0x41543333u                  /* "AT33": another magic loads the defaults */
 #define ACCENT_VEL 100u
 #define SR 44100.0f
@@ -1125,7 +1144,8 @@ static void note_name(int32_t note, char *b)
 }
 
 /* the pattern strip: a cell a step, as the SEQ module's LEDs (green note, blue tie, amber slide,
- * red accent), the step under way framed white */
+ * now in the acid editor's colours of the VCV modules: blue note, dark blue tie, pale accent, cyan slide), the step
+ * under way framed white */
 static void draw_pattern(int32_t y)
 {
     int32_t i, len = seq_len(), cur = sq.step;
@@ -1135,18 +1155,48 @@ static void draw_pattern(int32_t y)
         uint16_t c = C_LINE;
         if (i < len && g->gate[i]) {
             if (g->tie[i])
-                c = RGB(40, 110, 255);
+                c = AK_TIE;
             else if (g->accent[i])
-                c = RGB(255, 60, 40);
+                c = AK_ACCENT;
             else if (g->slide[i])
-                c = RGB(240, 190, 40);
+                c = AK_SLIDE;
             else
-                c = RGB(60, 210, 90);
+                c = AK_NOTE;
         } else if (i >= len)
             c = C_BLACK;
         if (sq.running && i == cur)
             cv_rect(x - 1, y - 1, 15, 22, C_WHITE);
         cv_rect(x, y, 13, 20, c);
+    }
+}
+
+/* the page navigator at the foot: five tabs at a time around the page, the page boxed, arrows where there are more */
+static const char *const PAGE_TAB[NPAGES] = {"VCF", "VOICE", "PATT", "SEQ", "DELAY", "CHOR", "DRIVE", "REVRB"};
+static void draw_nav(int32_t y)
+{
+    int32_t first = (int32_t)set.page - 2, k;
+    const int32_t TABS = 5, W = 44, X0 = 10, H = 20;
+    if (first > NPAGES - TABS)
+        first = NPAGES - TABS;
+    if (first < 0)
+        first = 0;
+    cv_rect(0, y, 240, 1, C_LOGO);               /* the frame */
+    cv_rect(0, y + H + 1, 240, 1, C_LOGO);
+    cv_rect(0, y, 1, H + 2, C_LOGO);
+    cv_rect(239, y, 1, H + 2, C_LOGO);
+    for (k = 0; k < TABS; k++) {
+        int32_t i = first + k, x = X0 + k * W, tw = text_w(&FONT_XS, PAGE_TAB[i]);
+        if (i == set.page) {
+            cv_rect(x, y + 3, W - 4, H - 4, C_LOGO);
+            cv_text(x + (W - 4 - tw) / 2, y + 4, &FONT_XS, PAGE_TAB[i], C_WHITE);
+        } else
+            cv_text(x + (W - 4 - tw) / 2, y + 4, &FONT_XS, PAGE_TAB[i], C_HI);
+    }
+    for (k = 0; k < 4; k++) {                    /* the arrows: small triangles */
+        if (first > 0)
+            cv_rect(6 - k, y + 7 + k, 1, 8 - 2 * k, C_LOGO);
+        if (first + TABS < NPAGES)
+            cv_rect(233 + k, y + 7 + k, 1, 8 - 2 * k, C_LOGO);
     }
 }
 
@@ -1170,8 +1220,8 @@ static void draw_editor(void)
     static const char *const ROW[5] = {"UP", "DOWN", "GATE", "ACC", "SLIDE"};
     const acid_grid_t *g = &sq.grid;
     int32_t i, r, len = seq_len(), cur = ui.cursor, play = sq.running ? sq.step : -1;
-    const uint16_t NOTE = RGB(48, 128, 255), ACC = RGB(205, 225, 255), TIE = RGB(36, 80, 170);
-    const uint16_t SLIDE = RGB(0, 190, 255), ROWA = RGB(20, 22, 30), ROWB = RGB(30, 33, 44);
+    const uint16_t NOTE = AK_NOTE, ACC = AK_ACCENT, TIE = AK_TIE;
+    const uint16_t SLIDE = AK_SLIDE, ROWA = RGB(0x16, 0x18, 0x1C), ROWB = RGB(0x22, 0x25, 0x2B);
     /* the roll: 12 rows of 8 px, B at the top */
     cv_begin(240, 100, C_BLACK);
     for (r = 0; r < 12; r++) {
@@ -1219,9 +1269,9 @@ static void draw_editor(void)
             if (i >= len)
                 c = C_BLACK;
             else if (r == 0 && on && oc > 0)
-                c = oc > 1 ? ACC : RGB(110, 120, 150);
+                c = oc > 1 ? ACC : AK_OCTAVE;
             else if (r == 1 && on && oc < 0)
-                c = oc < -1 ? ACC : RGB(110, 120, 150);
+                c = oc < -1 ? ACC : AK_OCTAVE;
             else if (r == 2 && on)
                 c = g->tie[i] ? TIE : NOTE;
             else if (r == 3 && on && g->accent[i])
@@ -1250,12 +1300,12 @@ static void draw_list(void)
     if (top > NPRESETS - 8)
         top = NPRESETS - 8;
     for (band = 0; band < 2; band++) {
-        cv_begin(240, band ? 104 : 80, C_BLACK);
+        cv_begin(240, band ? 124 : 84, C_BLACK);   /* the whole area: 32 .. 240 */
         for (r = band ? 4 : 0; r < (band ? 8 : 4); r++) {
-            int32_t i = top + r, y = (r - (band ? 4 : 0)) * 20;
+            int32_t i = top + r, y = (r - (band ? 4 : 0)) * 20 + (band ? 0 : 4);
             int cur = i == ui.list_cur;
             if (cur)
-                cv_rect(4, y, 232, 19, C_LINE);
+                cv_rect(4, y, 232, 19, RGB(0x22, 0x25, 0x2B));
             t[0] = (char)('0' + (i + 1) / 10);
             t[1] = (char)('0' + (i + 1) % 10);
             t[2] = 0;
@@ -1269,7 +1319,7 @@ static void draw_list(void)
             cv_text(4, 84, &FONT_T, "PRESETS MOVE  ENV x2 DELETE  SAVE HERE", C_DIM);
             cv_text(4, 94, &FONT_T, "HOME CLOSE", C_DIM);
         }
-        cv_blit(0, band ? 116 : 36);
+        cv_blit(0, band ? 116 : 32);
     }
 }
 
@@ -1324,10 +1374,10 @@ static void draw(void)
         draw_editor();
         return;
     }
-    cv_begin(240, 136, C_BLACK);
+    cv_begin(240, 138, C_BLACK);               /* 32 .. 170: no gap under the header */
     for (i = 0; i < 4; i++) {
         int kn = PAGE_KNOB[set.page][i];
-        int32_t x = (i & 1) * 120, y = (i >> 1) * 68, w;
+        int32_t x = (i & 1) * 120, y = (i >> 1) * 68 + 2, w;
         if (kn == K_NONE)
             continue;
         cv_text(x + 8, y + 2, &FONT_XS, PAGE_NAME[set.page][i], C_GRAY);
@@ -1335,17 +1385,10 @@ static void draw(void)
         cv_text(x + 8, y + 18, &FONT_B, t, C_HI);
         cv_rect(x + 8, y + 46, 104, 6, C_LINE);
         w = (int32_t)(104.0f * knob_value(kn) + 0.5f);
-        cv_rect(x + 8, y + 46, w, 6, C_HI);
+        cv_rect(x + 8, y + 46, w, 6, C_LOGO);
     }
-    cv_blit(0, 34);
+    cv_blit(0, 32);
     cv_begin(240, 70, C_BLACK);
-    t[0] = 0;
-    text_cat(t, "PAGE ");
-    t[5] = (char)('1' + set.page);
-    t[6] = ' ';
-    t[7] = 0;
-    text_cat(t, PAGE_TITLE[set.page]);
-    cv_text(8, 2, &FONT_XS, t, C_DIM);
     t[0] = 0;
     text_cat(t, set.locked ? "LOCK  " : "");
     text_cat(t, "OCT ");
@@ -1356,8 +1399,9 @@ static void draw(void)
         o[2] = 0;
         text_cat(t, o);
     }
-    cv_text(232 - text_w(&FONT_XS, t), 2, &FONT_XS, t, C_GRAY);
-    draw_pattern(26);
+    cv_text(232 - text_w(&FONT_T, t), 0, &FONT_T, t, C_GRAY);
+    draw_pattern(14);
+    draw_nav(46);
     cv_blit(0, 170);
 }
 
@@ -1394,6 +1438,7 @@ void app_splash(void)
 
 void app_ui_init(void)
 {
+    animatek_palette();
     touch_on(1);
     lcd_fill(0, 0, 240, 240, C_BLACK);
     ui.redraw = 1;
