@@ -12,7 +12,8 @@
  *                     moves on; K2 its octave (UP / DOWN), K3 its gate (REST, NOTE, TIE), K4 its note
  *                     a semitone; ENV toggles its ACCENT, LFO its SLIDE; REC undoes; EDIT or HOME leave.
  *                     A note outside the scale turns the scale CHROMATIC (nothing is lost)
- *   HOME            straight to page 1 (CUTOFF, RESO, ENV MOD, DECAY), out of the editor
+ *   HOME            the four sound pages in turn: VCF, VOICE, PATT, SEQ (again: the next one); from the
+ *                   editor, the preset list or an effect page, straight to VCF
  *   REC             undo the last mutation or edit
  *   GLO             LOCK: GENERATE mutates instead of making a new seed
  *   keys            stopped: play the voice (mono; legato slides; a hard press is an accent).
@@ -1061,8 +1062,9 @@ static void input(void)
         } else if (k == B_ENV || k == B_LFO || k == B_ARP) {
             post(EV_MUTATE, k == B_ENV ? ACID_MUT_TIME : k == B_LFO ? ACID_MUT_PITCH : ACID_MUT_ARTICULATION, 0);
             set_dirty = 1;
-        } else if (k == B_HOME) {              /* straight to page 1 (CUTOFF), out of the editor and the list */
-            set.page = 0;
+        } else if (k == B_HOME) {              /* the four sound pages in turn (VCF, VOICE, PATT, SEQ); from the editor,
+                                                  the list or an effect page, straight to VCF */
+            set.page = (uint8_t)(ui.edit || ui.list || set.page >= 3u ? 0u : set.page + 1u);
             ui.edit = 0;
             ui.list = 0;
             set_dirty = 1;

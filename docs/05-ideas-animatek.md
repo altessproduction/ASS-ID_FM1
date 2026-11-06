@@ -96,6 +96,23 @@ portado a C en coma fija (`docs/ARCHITECTURE.md` de `terceros/kitten-rack`):
 - **Límite:** no caben «todos los módulos de VCV»: cada módulo hay que portarlo a mano, a coma
   fija, y medir su CPU. Unas decenas de módulos bien elegidos, sí.
 
+### 7. Caja de ritmos acid: el ATEK303 con más voces — sin probar
+La idea de Javier (06/11, con el ATEK303 ya sonando en el FM-1 real): una página **ALGO** al tocar
+el encoder ALGORITHM, con los dos osciladores del 303 (SAW, SQR) y los modelos de **Plaits**
+(el plan aparcado está en `atek303/README.md`), y con más motores llegar a **4 pistas**:
+percusión con los bombos, cajas y charles de Plaits y otras voces, como una caja de ritmos.
+
+- **Ya existe mucho:** X0X (909, 808 y dos 303), SLOOP (4 pistas), Skiff (6 pistas, 14 motores),
+  Bubba Machine (los 808 y 909 de Plaits). Otra groovebox más no destaca por sí sola.
+- **Lo que sería nuestro:** el **generador acid** del ATEK303 en la pista del 303 y patrones
+  **generativos** en las de percusión (euclidiano, mutaciones con LOCK, como en G1-Mods). Pulsas
+  y suena una línea entera que se mueve.
+- **CPU, por medir:** la voz del 303 usa el 42 % en el emulador (a 240 MHz; el FM-1 va a 360).
+  Con tres pistas más puede no caber sin rebajar el sobremuestreo o los efectos. Lo primero
+  sería medir los modelos de percusión de Plaits en el emulador.
+- **Decidido (06/11):** el ATEK303 se queda como está, como nuestro firmware base. La caja de ritmos,
+  si se hace, será un firmware aparte que parta de su código: la pista acid igual y tres de percusión.
+
 ## Recomendación
 
 1. **Primero, el port del ATEK303 sobre fm1-base.** Es el más corto, el motor es nuestro y ya

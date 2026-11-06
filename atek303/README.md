@@ -25,7 +25,11 @@ plataforma con un motor que ya es nuestro. Licencia GPL-3.0-or-later, como el AT
 - [x] **Fase 2, el secuenciador** (ver abajo).
 - [x] Javier confirma que DENSITY y compañía en tiempo real se quedan así («es más divertido»).
 - [x] **Fase 3: efectos y editor de pasos** (ver abajo).
-- [ ] Probar las fases 2 y 3 en Bitwig.
+- [x] **Probado en un FM-1 real** (06/11): instalado con `terceros/fm1-base/tools/fm1_install.py --classic`
+      después de copiar la flash entera; Javier: «funciona genial». En Linux, siempre `--classic`: la instalación
+      rápida se quedó al 2 % («USB LOST»).
+- [x] HOME recorre VCF, VOICE, PATT y SEQ (probado en el FM-1 real).
+- Es **nuestro firmware base**: se queda así, sin más motores (los de Plaits y la caja de ritmos, aparte).
 
 ### Arreglo en el emulador (local, en `terceros/fm1-emu`)
 
@@ -64,7 +68,7 @@ hace la voz). La resolución es de 32 muestras (0,7 ms).
 | PLAY | arranca o para (reloj interno; con reloj MIDI, lo sigue: start, stop, continue, 6 ticks por paso) |
 | SEQ | GENERATE: semilla nueva. Con LOCK, muta las tres capas |
 | ENV / LFO / EDIT | muta TIEMPO / NOTAS (octavas) / SLIDES y ACENTOS |
-| HOME | directo a la página 1 (CUTOFF), y sale del editor |
+| HOME | recorre las páginas de sonido: VCF, VOICE, PATT, SEQ; desde el editor, la lista o un efecto, directo a VCF |
 | REC | deshace la última mutación o edición |
 | GLO | LOCK |
 | teclas | parado: tocan la voz. Sonando: **transportan** (la tecla es la nueva raíz, como en un 303) |

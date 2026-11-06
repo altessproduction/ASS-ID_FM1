@@ -13,3 +13,7 @@ target/
 build/
 atek303/tests/build/
 atek303/app/web/
+# Lo que dejan las pruebas del simulador (capturas, audio, MIDI de salida)
+atek303/app/*.png
+atek303/app/*.wav
+atek303/app/midi_out.txt

@@ -70,7 +70,7 @@ wavstop
 tap PLAY
 wait 30
 expect running 0
-# HOME: directo a la página 1 (CUTOFF), también desde el editor
+# HOME: desde el editor, directo a la página 1 (CUTOFF)
 turn SELECT 3
 wait 30
 tap EDIT
@@ -79,6 +79,26 @@ tap HOME
 wait 30
 expect page 0
 expect edit 0
+# HOME otra vez: recorre VCF, VOICE, PATT, SEQ y vuelve a VCF
+tap HOME
+wait 30
+expect page 1
+tap HOME
+wait 30
+expect page 2
+tap HOME
+wait 30
+expect page 3
+tap HOME
+wait 30
+expect page 0
+# desde un efecto, directo a VCF
+tap FX
+wait 30
+expect page 4
+tap HOME
+wait 30
+expect page 0
 tap SAVE
 wait 30
 expect dirty 0
