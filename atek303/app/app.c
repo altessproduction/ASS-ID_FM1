@@ -5,12 +5,13 @@
  * ATEK303 on the FM-1: the ATEK303 voice and the ATEK303 SEQ's acid pattern generator.
  *
  *   PLAY            the sequencer runs / stops (internal clock, or MIDI clock when it comes in)
- *   SEQ             GENERATE: a new pattern (a new seed). With LOCK on: mutate all three layers
- *   ENV / LFO / ARP mutate TIME / NOTES (octaves) / SLIDES and ACCENTS
+ *   SEQ             GENERATE: a new pattern (a new seed). With LOCK on: mutate all three layers. Running:
+ *                   at the next bar (16 steps; NEXT until then)
+ *   ENV / LFO / ARP mutate TIME / NOTES (octaves) / SLIDES and ACCENTS, on the page of 16 steps on view
  *   EDIT            the step editor (a piano roll with UP, DOWN, GATE, ACC and SLIDE rows):
- *                     SELECT or K1 moves the cursor over the steps; a key sets the step's note and
- *                     moves on; K2 its octave (UP / DOWN), K3 its gate (REST, NOTE, TIE), K4 its note
- *                     a semitone; ENV toggles its ACCENT, LFO its SLIDE; REC undoes; EDIT or HOME leave.
+ *                     SELECT moves the cursor over the 16 steps of the page; K4 the page (1:4 .. 4:4);
+ *                     a key sets the step's note and moves on; K1 its gate (REST, NOTE, TIE), K2 its
+ *                     octave (UP / DOWN), K3 its note a semitone; OCT- held + K4 the pattern's STEPS; ENV toggles its ACCENT, LFO its SLIDE; REC undoes; EDIT or HOME leave.
  *                     A note outside the scale turns the scale CHROMATIC (nothing is lost)
  *   HOME            the four sound pages in turn: VCF, VOICE, PATT, SEQ (again: the next one); from the
  *                   editor, the preset list or an effect page, straight to VCF
@@ -30,11 +31,14 @@
  *                     (the pages' order; the sound goes drive -> chorus -> delay -> reverb)
  *                     8 REVERB  DECAY, DAMP, PRE-DELAY, MIX (Dattorro's plate)
  *   FX              jumps to the effect pages (again: the next one)
- *   SAVE            a new PRESET: everything (pattern, voice, effects, tempo, scale, root) in the next
- *                   free slot of 32, with a random acid name. Held a second: over the preset loaded
+ *   SAVE            the SAVE screen: a PRESET is everything (pattern, voice, effects, tempo, scale, root).
+ *                   It opens on the preset loaded (the list's cursor, or the first empty slot); PRESETS picks
+ *                   the slot (of 32), SELECT a new random acid name; SAVE saves, and over a slot in use asks
+ *                   OVERWRITE? (NO / YES, NO first; any encoder turns it); any other button cancels
  *   PRESETS         the encoder opens the PRESET LIST (the 32 slots) and moves through it; a saved preset
- *                   loads as the cursor reaches it. In the list: ENV twice deletes the one selected, SAVE on an
- *                   empty slot saves there, HOME closes it (it closes by itself after 6 s untouched)
+ *                   loads as the cursor reaches it (running: at the end of the pattern, as on a 303; NEXT
+ *                   until then). A fresh FM-1 comes with 8 factory presets in slots 1..8.
+ *                   In the list: ENV twice deletes the one selected, SAVE opens the SAVE screen on it, HOME closes it (it closes by itself after 6 s untouched)
  *   MIDI in         stopped: notes play the voice; running: notes transpose. Clock, start, stop and
  *                   continue drive the sequencer. CC 74 cutoff, 71 reso, 75 env mod, 76 decay,
  *                   77 accent, 78 tune, 79 wave
@@ -58,6 +62,7 @@
 #define AK_ACCENT RGB(0xCF, 0xE6, 0xFF)
 #define AK_SLIDE RGB(0x00, 0xC2, 0xFF)
 #define AK_OCTAVE RGB(0x7F, 0x9C, 0xC4)
+#define AK_AMBER RGB(0xFD, 0x9A, 0x00)          /* the Animatek amber: what waits (NEXT), OVERWRITE */
 static void animatek_palette(void)              /* over fm1-base's (gfx.c pal[]: C_LINE, C_DIM, C_GRAY, C_AMB, C_HI) */
 {
     pal[0] = RGB(0x2C, 0x2C, 0x2C);            /* rules, empty bars */
@@ -67,7 +72,7 @@ static void animatek_palette(void)              /* over fm1-base's (gfx.c pal[]:
     pal[4] = RGB(0x5D, 0xB7, 0xFF);            /* values: the displays' blue */
 }
 
-#define SET_MAGIC 0x41543333u                  /* "AT33": another magic loads the defaults */
+#define SET_MAGIC 0x41543634u                  /* "AT64" (64 steps): another magic loads the defaults */
 #define ACCENT_VEL 100u
 #define SR 44100.0f
 #define CHUNK 32u                              /* the sequencer's resolution: 0.7 ms */
@@ -81,7 +86,7 @@ typedef struct {
     float seqk[SQ_NKNOBS];
     int8_t octave;                             /* -2 .. +2 */
     uint8_t page;
-    uint8_t steps;                             /* 1..16 */
+    uint8_t steps;                             /* 1..64 */
     uint8_t scale;
     uint8_t root;                              /* 0..11 */
     uint8_t locked;
@@ -92,18 +97,21 @@ typedef struct {
 } settings_t;
 static settings_t set;
 static uint8_t set_dirty;
+static volatile uint8_t backup_hold;           /* a backup streams over USB: SAVE waits */
 
 /* ------------------------------------------------------------------ presets --- */
-/* 32 presets, 16 to a store object (232 bytes each: 3712 of the 3840 an object takes). A preset is the
+/* 32 presets, 8 to a store object (4 objects; with 64 steps a preset is about 470 bytes, of the 480 an eighth
+ * of an object leaves: checked below). A preset is the
  * whole settings record and a name; the page it was saved on is not restored. */
 #define NPRESETS 32
-#define PRESETS_PER_OBJ 16
+#define PRESETS_PER_OBJ 8
 typedef struct {
     char name[15];
     uint8_t used;
     settings_t s;
 } preset_t;
 static preset_t presets[NPRESETS];
+typedef char preset_fits[sizeof(preset_t) * PRESETS_PER_OBJ <= PLAT_STORE_MAX ? 1 : -1];
 static int8_t cur_preset = -1;                 /* the one loaded (or saved) last, -1 none */
 
 /* random acid names: two words, at most 14 characters */
@@ -139,7 +147,7 @@ static at_voice_t voice;
 
 /* ---------------------------------------------- main loop -> render queue --- */
 enum { EV_NOTE_ON, EV_NOTE_OFF, EV_PARAM, EV_PANIC, EV_PLAY, EV_GENERATE, EV_MUTATE, EV_UNDO, EV_REGROW,
-       EV_ROOT, EV_FX, EV_EDIT, EV_LOAD };
+       EV_ROOT, EV_FX, EV_EDIT, EV_LOAD, EV_APPLY };
 /* the editor's operations (EV_EDIT: a = step, b = op | value << 8) */
 enum { ED_NOTE, ED_GATE, ED_ACC, ED_SLIDE, ED_OCT, ED_SEMI };
 #define QN 64u
@@ -234,8 +242,14 @@ static acid_params_t gen_params(void)
     return p;
 }
 static volatile uint32_t grid_version;
+#ifdef PLAT_HOST
+static acid_grid_t sq_before;                  /* the tests: the grid before the last change */
+#endif
 static void seq_render_grid(void)
 {
+#ifdef PLAT_HOST
+    sq_before = sq.grid;
+#endif
     acid_render(&set.pattern, &sq.grid);
     grid_version++;
 }
@@ -253,12 +267,12 @@ static void seq_generate(int new_seed)
     sq.has_undo = 0;
     seq_render_grid();
 }
-static int seq_mutate(int layer)
+static int seq_mutate(int layer, int lo)          /* on the page of 16 from lo, as the SEQ module's pages */
 {
     acid_pattern_t before = set.pattern;
     uint32_t last = set.mutation_counter;
-    if (acid_mutate_burst(&set.pattern, layer, set.mutation_counter + 1u, layer == ACID_MUT_ARTICULATION ? 3 : 2,
-                          set.scale, &last)) {
+    if (acid_mutate_burst_range(&set.pattern, layer, set.mutation_counter + 1u, layer == ACID_MUT_ARTICULATION ? 3 : 2,
+                                set.scale, &last, lo, lo + 16)) {
         sq.undo = before;
         sq.undo_counter = set.mutation_counter;
         set.mutation_counter = last;
@@ -299,6 +313,35 @@ static int seq_undo(void)
     seq_render_grid();
     return 1;
 }
+/* a preset chosen while the sequencer runs waits for the end of the pattern, as on a 303 (render) */
+static volatile int8_t pend_preset = -1;
+static volatile uint8_t pend_gen;              /* SEQ while running: the new pattern waits for the next bar */
+static volatile uint8_t ui_event, ui_event_ok; /* the outcome of a button, for the screen (the render sets it) */
+static void seq_generate_now(void)
+{
+    ui_event_ok = (uint8_t)(set.locked ? seq_mutate_all() : (seq_generate(1), 1));
+    ui_event = (uint8_t)(EV_GENERATE + 1);
+}
+static volatile int8_t loaded_preset = -1;     /* the last one the render loaded, and a count the screen follows */
+static volatile uint8_t loaded_n;
+static void preset_apply(int a)                /* a preset, whole, but the page */
+{
+    uint8_t page = set.page;
+    int k;
+    if (a < 0 || a >= NPRESETS || !presets[a].used)
+        return;
+    set = presets[a].s;
+    set.page = page;
+    for (k = 0; k < AT_NPARAMS; k++)
+        at_set(&voice, k, set.param[k]);
+    for (k = 0; k < FX_NPARAMS; k++)
+        fx_set(k, set.fx[k]);
+    acid_sanitize_ex(&set.pattern, set.scale, 1);
+    sq.has_undo = 0;
+    seq_render_grid();
+    loaded_preset = (int8_t)a;
+    loaded_n++;
+}
 static void seq_play(int on)
 {
     if (on && !sq.running) {
@@ -310,6 +353,15 @@ static void seq_play(int on)
     }
     sq.running = (uint8_t)on;
     if (!on) {
+        if (pend_gen) {                        /* stopped: what waited, now */
+            pend_gen = 0;
+            seq_generate_now();
+        }
+        if (pend_preset >= 0) {                /* stopped: the one waiting loads now */
+            int a = pend_preset;
+            pend_preset = -1;
+            preset_apply(a);
+        }
         sq.started = 0;
         at_gate(&voice, 0, voice.held_note < 0 ? 36 : voice.held_note, 0, 0);
         ui_note = -1;
@@ -323,6 +375,15 @@ static void seq_next_step(void)
     int len = seq_len();
     sq.step = (uint8_t)((sq.step + 1) % len);
     sq.step_time = 0.0f;
+    if (sq.step % 16 == 0 && pend_gen) {       /* a bar ended: the new pattern from here */
+        pend_gen = 0;
+        seq_generate_now();
+    }
+    if (sq.step == 0 && pend_preset >= 0) {    /* the pattern ended: the one waiting starts on its first step */
+        int a = pend_preset;
+        pend_preset = -1;
+        preset_apply(a);
+    }
 }
 /* the gate, tie and slide of the step under way (Atek303Seq::process), into the voice */
 static void seq_apply(void)
@@ -507,8 +568,6 @@ static void midi_in(void)                      /* render: the packets that came 
     }
 }
 
-/* the outcome of a button, for the screen (the render sets it, the main loop says it) */
-static volatile uint8_t ui_event, ui_event_ok;
 
 static float mono[APP_BLOCK], fxl[APP_BLOCK], fxr[APP_BLOCK];
 void app_render(int32_t *lr, uint32_t n, uint32_t master_q12)
@@ -534,10 +593,12 @@ void app_render(int32_t *lr, uint32_t n, uint32_t master_q12)
             sq.ext = 0;
             seq_play(!sq.running);
         } else if (kind == EV_GENERATE) {
-            ui_event_ok = (uint8_t)(set.locked ? seq_mutate_all() : (seq_generate(1), 1));
-            ui_event = (uint8_t)(EV_GENERATE + 1);
+            if (sq.running && sq.started)
+                pend_gen = 1;                  /* on at the next bar (16 steps) */
+            else
+                seq_generate_now();
         } else if (kind == EV_MUTATE) {
-            ui_event_ok = (uint8_t)seq_mutate((int)a);
+            ui_event_ok = (uint8_t)seq_mutate((int)a, (int)b);
             ui_event = (uint8_t)(EV_MUTATE + 1);
         } else if (kind == EV_UNDO) {
             ui_event_ok = (uint8_t)seq_undo();
@@ -548,18 +609,20 @@ void app_render(int32_t *lr, uint32_t n, uint32_t master_q12)
             fx_set((int)a, (float)b / 1000.0f);
         else if (kind == EV_EDIT)
             seq_edit((int)a, (int)(b & 0xFFu), (int)(b >> 8));
-        else if (kind == EV_LOAD && a < NPRESETS && presets[a].used) {   /* a preset, whole, but the page */
-            uint8_t page = set.page;
+        else if (kind == EV_APPLY) {           /* a restore: the settings as they are now, into the sound */
             int k;
-            set = presets[a].s;
-            set.page = page;
             for (k = 0; k < AT_NPARAMS; k++)
                 at_set(&voice, k, set.param[k]);
             for (k = 0; k < FX_NPARAMS; k++)
                 fx_set(k, set.fx[k]);
-            acid_sanitize_ex(&set.pattern, set.scale, 1);
+            acid_sanitize(&set.pattern, set.scale);
             sq.has_undo = 0;
             seq_render_grid();
+        } else if (kind == EV_LOAD && a < NPRESETS && presets[a].used) {
+            if (sq.running && sq.started)
+                pend_preset = (int8_t)a;       /* on at the end of the pattern */
+            else
+                preset_apply((int)a);
         }
         q_r++;
     }
@@ -600,11 +663,15 @@ static void settings_defaults(void)
     set.magic = SET_MAGIC;
     for (i = 0; i < AT_NPARAMS; i++)
         set.param[i] = d.param[i];
-    acid_params_default(&p);                   /* the SEQ module's defaults */
-    set.seqk[SQ_DENSITY] = p.density;
-    set.seqk[SQ_RANGE] = p.range;
-    set.seqk[SQ_ACCENT] = p.accent;
-    set.seqk[SQ_SLIDE] = p.slide;
+    set.param[AT_CUTOFF] = 0.08f;              /* Javier's start (2026-11-07): 369 Hz, reso 80 %, env mod 4 %, */
+    set.param[AT_RESONANCE] = 0.80f;           /* decay 707 ms; density 100 %, range 80 %, accents 51 %, slides 44 % */
+    set.param[AT_ENVMOD] = 0.34f;
+    set.param[AT_DECAY] = 0.50f;
+    acid_params_default(&p);
+    set.seqk[SQ_DENSITY] = 1.0f;
+    set.seqk[SQ_RANGE] = 0.80f;
+    set.seqk[SQ_ACCENT] = 0.51f;
+    set.seqk[SQ_SLIDE] = 0.44f;
     set.seqk[SQ_GATE] = 0.85f;
     set.octave = -1;
     set.page = 0;
@@ -615,6 +682,10 @@ static void settings_defaults(void)
     set.tempo = 125;
     set.mutation_counter = 0;
     p.scale = 0;
+    p.density = set.seqk[SQ_DENSITY];          /* the first pattern grows from those knobs */
+    p.range = set.seqk[SQ_RANGE];
+    p.accent = set.seqk[SQ_ACCENT];
+    p.slide = set.seqk[SQ_SLIDE];
     acid_generate(&set.pattern, &p, 0x41544B33u);
     set.fx[FX_DRIVE_TYPE] = 0.0f;              /* the effects: every one off (its mix at 0) */
     set.fx[FX_DRIVE] = 0.5f;
@@ -634,22 +705,134 @@ static void settings_defaults(void)
     set.fx[FX_REV_MIX] = 0.0f;   /* "ATK3": the same first pattern on every FM-1 */
 }
 
+#if __has_include("factory_presets.h")
+#include "factory_presets.h"                   /* FACTORY_BANKS: Javier's presets, from a backup */
+#endif
+/* the factory presets: what an empty bank starts with (slots 1..8). The pattern grows from the seed with the
+ * preset's own pattern knobs, so it is the same on every FM-1; delete one and it stays deleted */
+typedef struct {
+    const char *name;
+    float v[AT_NPARAMS];                       /* TUNE, CUTOFF, RESO, ENV MOD, DECAY, ACCENT, WAVE (0 saw, 1 square) */
+    float sk[SQ_NKNOBS];                       /* DENSITY, RANGE, ACCENTS, SLIDES, GATE */
+    uint8_t steps, scale, root;
+    uint16_t tempo;
+    uint32_t seed;
+    float fx[FX_NPARAMS];                      /* drive (type, drive, tone, level), chorus (type, rate, depth, mix),
+                                                  delay (time, feedback, tone, mix), reverb (decay, damp, pre, mix) */
+} factory_t;
+static const factory_t FACTORY[] = {
+    {"ACID CLASSIC", {.5f, .30f, .78f, .62f, .38f, .70f, 0}, {.65f, .45f, .60f, .50f, .85f}, 16, 0, 0, 125, 0x303A0001u,
+     {0, .5f, .6f, .6f, 0, .3f, .5f, 0, 3, .40f, .5f, .18f, .6f, .4f, .2f, .08f}},
+    {"SQUARE SQUELCH", {.5f, .24f, .86f, .70f, .30f, .75f, 1}, {.70f, .50f, .65f, .55f, .80f}, 16, 0, 2, 130, 0x303A0002u,
+     {1, .45f, .55f, .6f, 0, .3f, .5f, 0, 2, .35f, .5f, .12f, .6f, .4f, .2f, 0}},
+    {"RUBBER BASS", {.5f, .18f, .45f, .40f, .55f, .55f, 0}, {.80f, .25f, .40f, .35f, .90f}, 16, 1, 9, 120, 0x303A0003u,
+     {0, .5f, .6f, .6f, 0, .3f, .5f, 0, 3, .45f, .5f, 0, .6f, .4f, .2f, .05f}},
+    {"PHRYGIAN RAT", {.5f, .28f, .82f, .66f, .34f, .72f, 0}, {.65f, .50f, .60f, .45f, .80f}, 16, 2, 4, 135, 0x303A0004u,
+     {2, .55f, .5f, .55f, 0, .3f, .5f, 0, 3, .30f, .45f, .10f, .6f, .4f, .2f, 0}},
+    {"DUB ACID", {.5f, .32f, .72f, .55f, .50f, .60f, 0}, {.45f, .40f, .50f, .40f, .75f}, 16, 4, 7, 118, 0x303A0005u,
+     {0, .5f, .6f, .6f, 0, .25f, .5f, .15f, 5, .62f, .35f, .32f, .75f, .5f, .3f, .18f}},
+    {"HYPER ACID", {.5f, .35f, .90f, .80f, .28f, .85f, 0}, {.90f, .60f, .70f, .65f, .70f}, 16, 0, 0, 145, 0x303A0006u,
+     {3, .40f, .6f, .5f, 0, .3f, .5f, 0, 0, .30f, .6f, .10f, .6f, .4f, .2f, 0}},
+    {"FLANGE WORM", {.5f, .30f, .80f, .60f, .40f, .65f, 1}, {.60f, .45f, .55f, .60f, .85f}, 16, 5, 5, 128, 0x303A0007u,
+     {0, .5f, .6f, .6f, 1, .20f, .6f, .45f, 3, .35f, .5f, .10f, .6f, .4f, .2f, 0}},
+    {"SPACE MELT", {.5f, .26f, .70f, .50f, .70f, .50f, 1}, {.40f, .55f, .40f, .60f, .90f}, 16, 3, 11, 100, 0x303A0008u,
+     {0, .5f, .6f, .6f, 0, .25f, .6f, .35f, 4, .55f, .4f, .30f, .85f, .35f, .4f, .35f}},
+};
+#define NFACTORY ((int)(sizeof FACTORY / sizeof FACTORY[0]))
+static void factory_presets(void)              /* into slots 0.. of an empty bank A, through the settings record */
+{
+    settings_t keep = set;
+    int i, k;
+    for (i = 0; i < NFACTORY; i++) {
+        const factory_t *f = &FACTORY[i];
+        acid_params_t p;
+        settings_defaults();
+        for (k = 0; k < AT_NPARAMS; k++)
+            set.param[k] = f->v[k];
+        for (k = 0; k < SQ_NKNOBS; k++)
+            set.seqk[k] = f->sk[k];
+        for (k = 0; k < FX_NPARAMS; k++)
+            set.fx[k] = f->fx[k];
+        set.steps = f->steps;
+        set.scale = f->scale;
+        set.root = f->root;
+        set.tempo = f->tempo;
+        p = gen_params();
+        acid_generate(&set.pattern, &p, f->seed);
+        for (k = 0; k < 15 && f->name[k]; k++)
+            presets[i].name[k] = f->name[k];
+        for (; k < 15; k++)
+            presets[i].name[k] = 0;
+        presets[i].s = set;
+        presets[i].used = 1;
+    }
+    set = keep;
+}
+
+static void bytes_copy(void *d, const void *s, uint32_t n)
+{
+    uint8_t *a = (uint8_t *)d;
+    const uint8_t *b = (const uint8_t *)s;
+    while (n--)
+        *a++ = *b++;
+}
+static int settings_ok(const settings_t *t)
+{
+    int i, ok = t->magic == SET_MAGIC && t->octave >= -2 && t->octave <= 2 && t->page < 8u && t->steps >= 1u
+                && t->steps <= ACID_MAX_STEPS && t->scale < ACID_SCALES_LEN && t->root < 12u && t->tempo >= 30u
+                && t->tempo <= 300u;
+    for (i = 0; ok && i < AT_NPARAMS; i++)
+        ok = t->param[i] >= 0.0f && t->param[i] <= 1.0f;
+    for (i = 0; ok && i < SQ_NKNOBS; i++)
+        ok = t->seqk[i] >= 0.0f && t->seqk[i] <= 1.0f;
+    for (i = 0; ok && i < FX_NPARAMS; i++)
+        ok = t->fx[i] >= 0.0f && t->fx[i] <= 6.0f;
+    return ok;
+}
+/* the settings and the presets from the store. What is missing (a fresh FM-1) comes from the factory: Javier's own
+ * (factory_presets.h, made from a backup by tools/factory_from_backup.py) or, without it, the table above */
+static void store_load(void)
+{
+    int i, b;
+    int ok = plat_store_load(OBJ_SETTINGS, &set, sizeof set) == (int)sizeof set && settings_ok(&set);
+    for (b = 0; b < NPRESETS / PRESETS_PER_OBJ; b++) {
+        preset_t *bank = &presets[b * PRESETS_PER_OBJ];
+        if (plat_store_load((uint32_t)(OBJ_PRESETS_A + b), bank, sizeof(preset_t) * PRESETS_PER_OBJ)
+            != (int)(sizeof(preset_t) * PRESETS_PER_OBJ)) {
+            int k;
+            for (k = 0; k < PRESETS_PER_OBJ; k++)
+                bank[k].used = 0;
+#ifdef FACTORY_BANKS
+            if (FACTORY_BANK_LEN[b] == sizeof(preset_t) * PRESETS_PER_OBJ)
+                bytes_copy(bank, FACTORY_BANK[b], sizeof(preset_t) * PRESETS_PER_OBJ);
+#else
+            if (b == 0)
+                factory_presets();
+#endif
+        }
+    }
+    for (i = 0; i < NPRESETS; i++)              /* a preset from another layout is not loaded */
+        if (presets[i].used && (presets[i].used != 1u || !settings_ok(&presets[i].s)))
+            presets[i].used = 0;
+    if (!ok) {
+        settings_defaults();
+#ifdef FACTORY_BANKS
+        if (sizeof FACTORY_SETTINGS == sizeof set) {   /* the state Javier's FM-1 was in */
+            settings_t t;
+            bytes_copy(&t, FACTORY_SETTINGS, sizeof t);
+            if (settings_ok(&t))
+                set = t;
+        }
+#endif
+    }
+}
+
 void app_init(void)
 {
-    int i, ok;
+    int i;
     at_init(&voice, SR);
     voice.auto_legato = 1;
-    ok = plat_store_load(OBJ_SETTINGS, &set, sizeof set) == (int)sizeof set && set.magic == SET_MAGIC
-         && set.octave >= -2 && set.octave <= 2 && set.page < 8u && set.steps >= 1u && set.steps <= 16u
-         && set.scale < ACID_SCALES_LEN && set.root < 12u && set.tempo >= 30u && set.tempo <= 300u;
-    for (i = 0; ok && i < AT_NPARAMS; i++)
-        ok = set.param[i] >= 0.0f && set.param[i] <= 1.0f;
-    for (i = 0; ok && i < SQ_NKNOBS; i++)
-        ok = set.seqk[i] >= 0.0f && set.seqk[i] <= 1.0f;
-    for (i = 0; ok && i < FX_NPARAMS; i++)
-        ok = set.fx[i] >= 0.0f && set.fx[i] <= 6.0f;
-    if (!ok)
-        settings_defaults();
+    store_load();
     acid_sanitize(&set.pattern, set.scale);
     for (i = 0; i < AT_NPARAMS; i++)
         at_set(&voice, i, set.param[i]);
@@ -658,22 +841,7 @@ void app_init(void)
         fx_set(i, set.fx[i]);
     seq_render_grid();
     sq.period = 15.0f / (float)set.tempo;
-    {                                          /* the presets: a bad or missing bank is an empty one */
-        int b;
-        for (b = 0; b < NPRESETS / PRESETS_PER_OBJ; b++) {
-            preset_t *bank = &presets[b * PRESETS_PER_OBJ];
-            if (plat_store_load((uint32_t)(OBJ_PRESETS_A + b), bank, sizeof(preset_t) * PRESETS_PER_OBJ)
-                != (int)(sizeof(preset_t) * PRESETS_PER_OBJ)) {
-                int k;
-                for (k = 0; k < PRESETS_PER_OBJ; k++)
-                    bank[k].used = 0;
-            }
-        }
-        for (i = 0; i < NPRESETS; i++)          /* a preset from another layout is not loaded */
-            if (presets[i].used && (presets[i].used != 1u || presets[i].s.magic != SET_MAGIC))
-                presets[i].used = 0;
-        name_rng ^= set.pattern.seed;
-    }
+    name_rng ^= set.pattern.seed;
     seed_entropy = set.pattern.seed;
 }
 
@@ -705,12 +873,19 @@ static struct {
     uint32_t keys, btn;
     uint32_t regrow_at;                        /* a pattern knob turned: regrow when it rests */
     uint8_t edit, cursor;                      /* the step editor, and the step it points at */
-    uint32_t save_t;                           /* SAVE went down (0: not held, or its hold already acted) */
+    uint8_t save;                              /* the SAVE screen: 0 none, 1 slot and name, 2 OVERWRITE? */
+    int8_t save_slot;                          /* where it goes */
+    uint8_t save_yes;                          /* the confirmation's choice (NO by default) */
+    uint8_t save_named;                        /* SELECT gave it a new name: the slot's name no longer follows */
+    char save_name[15];
     uint8_t list;                              /* the preset list is up */
     int8_t list_cur;                           /* its cursor: a slot, 0..31 */
     uint32_t list_until;                       /* it closes by itself then */
     uint32_t del_t;                            /* ENV pressed once in the list: a second press deletes */
     uint8_t redraw;
+    uint8_t loaded_seen;
+    uint8_t oct_hold, oct_used;
+    float page_pos;                            /* K4 in the editor: where the knob is over the pages, 0..1 */                /* the editor: OCT- held, and K4 turned while it was (STEPS) */                       /* the render's loaded_n, as the screen last saw it */
 } ui;
 
 static void text_cat(char *d, const char *s)
@@ -748,7 +923,7 @@ static float knob_value(int k)                 /* 0..1, for the bar */
     if (k >= K_SQ && k < K_SQ + SQ_NKNOBS)
         return set.seqk[k - K_SQ];
     if (k == K_STEPS)
-        return (float)set.steps / 16.0f;
+        return (float)set.steps / (float)ACID_MAX_STEPS;
     if (k == K_SCALE)
         return (float)set.scale / (float)(ACID_SCALES_LEN - 1);
     if (k == K_TEMPO)
@@ -862,7 +1037,7 @@ static void knob_turn(int k, int32_t det)
             ui.regrow_at = plat_ms() + 120u;   /* regrow from the same seed once the knob rests */
     } else if (k == K_STEPS) {
         v = set.steps + det;
-        set.steps = (uint8_t)(v < 1 ? 1 : v > 16 ? 16 : v);
+        set.steps = (uint8_t)(v < 1 ? 1 : v > ACID_MAX_STEPS ? ACID_MAX_STEPS : v);
     } else if (k == K_SCALE) {
         v = set.scale + (det > 0 ? 1 : -1);
         set.scale = (uint8_t)(v < 0 ? 0 : v >= ACID_SCALES_LEN ? ACID_SCALES_LEN - 1 : v);
@@ -918,21 +1093,12 @@ static void preset_say(int i, const char *what)
     text_cat(t, presets[i].name);
     app_say(what, t);
 }
-/* slot -1: a new preset in the next free slot (all full: the one after the last saved, over it) */
-static void preset_save(int slot)
+/* the preset, whole, into a slot under a name */
+static void preset_save(int slot, const char *name)
 {
     int i, bank, ok;
-    if (slot < 0 || !presets[slot].used) {
-        if (slot < 0) {
-            for (i = 0; i < NPRESETS && presets[i].used; i++)
-                ;
-            slot = i < NPRESETS ? i : (cur_preset + 1) % NPRESETS;
-        }
-        name_rng ^= plat_ms() * 2654435761u;   /* when SAVE was pressed: a different name each time */
-        if (!name_rng)
-            name_rng = 1u;
-        acid_name(presets[slot].name);
-    }
+    for (i = 0; i < 15; i++)
+        presets[slot].name[i] = name[i];
     presets[slot].s = set;
     presets[slot].used = 1;
     bank = slot / PRESETS_PER_OBJ;
@@ -947,6 +1113,41 @@ static void preset_save(int slot)
     set_dirty = 0;
     preset_say(slot, "SAVED");
 }
+static void save_new_name(void)
+{
+    name_rng ^= plat_ms() * 2654435761u;       /* when it was asked for: a different name each time */
+    if (!name_rng)
+        name_rng = 1u;
+    acid_name(ui.save_name);
+}
+static void save_slot_to(int slot)             /* the slot's own name follows, unless SELECT gave a new one */
+{
+    int i;
+    ui.save_slot = (int8_t)slot;
+    if (ui.save_named)
+        return;
+    if (presets[slot].used)
+        for (i = 0; i < 15; i++)
+            ui.save_name[i] = presets[slot].name[i];
+    else
+        save_new_name();
+}
+/* SAVE: the screen opens on the preset loaded (or the list's cursor, or the first empty slot) */
+static void save_open(void)
+{
+    int i, slot = ui.list ? ui.list_cur : cur_preset;
+    if (slot < 0) {
+        for (i = 0; i < NPRESETS && presets[i].used; i++)
+            ;
+        slot = i < NPRESETS ? i : 0;
+    }
+    ui.save = 1;
+    ui.save_yes = 0;
+    ui.save_named = 0;
+    ui.list = 0;
+    ui.edit = 0;
+    save_slot_to(slot);
+}
 /* the PRESETS encoder: the first turn opens the list on the preset loaded; then each detent moves the cursor
  * over the 32 slots, and a saved preset under it loads at once */
 static void preset_step(int32_t d)
@@ -957,11 +1158,8 @@ static void preset_step(int32_t d)
     } else {
         int c = ((ui.list_cur + d) % NPRESETS + NPRESETS) % NPRESETS;
         ui.list_cur = (int8_t)c;
-        if (presets[c].used) {
-            cur_preset = (int8_t)c;
-            post(EV_LOAD, (uint32_t)c, 0);
-            set_dirty = 0;
-        }
+        if (presets[c].used)
+            post(EV_LOAD, (uint32_t)c, 0);     /* running: it waits for the end of the pattern (NEXT) */
     }
     ui.del_t = 0;
     ui.list_until = plat_ms() + 6000u;
@@ -984,10 +1182,47 @@ static void preset_delete(int slot)
     app_say("DELETED", "");
 }
 
+static int32_t view_base(void);
+/* the editor: SELECT moves over the 16 steps of the page (wrapping inside it, up to the pattern's end); K4 the page */
+static void edit_move(int32_t d)
+{
+    int32_t len = seq_len(), base = ui.cursor / 16 * 16, n = len - base < 16 ? len - base : 16, c;
+    if (n < 1) {
+        ui.cursor = 0;
+        return;
+    }
+    c = ((int32_t)ui.cursor - base + d) % n;
+    ui.cursor = (uint8_t)(base + (c < 0 ? c + n : c));
+}
+/* K4 as a knob over the pages: its whole travel (0..1 as every knob's: 0.01 a detent, 0.02 turned fast) shared out
+ * between them, so a page is some 25 detents with four, not one */
+static void edit_page_sync(void)               /* the knob in the middle of the cursor's page */
+{
+    int32_t pages = (seq_len() + 15) / 16;
+    ui.page_pos = ((float)(ui.cursor / 16) + 0.5f) / (float)pages;
+}
+static void edit_page(int32_t d)
+{
+    int32_t len = seq_len(), pages = (len + 15) / 16, pg, c;
+    ui.page_pos = fm_clampf(ui.page_pos + (float)d * (d > 1 || d < -1 ? 0.02f : 0.01f), 0.0f, 1.0f);
+    pg = (int32_t)(ui.page_pos * (float)pages);
+    if (pg >= pages)
+        pg = pages - 1;
+    if (pg == ui.cursor / 16)
+        return;
+    c = pg * 16 + ui.cursor % 16;
+    ui.cursor = (uint8_t)(c < len ? c : len - 1);
+}
 static void input(void)
 {
     uint32_t keys, btn = plat_buttons(), k;
     int32_t e;
+    if (ui.loaded_seen != loaded_n) {          /* a preset went in (now, or at the end of the pattern) */
+        ui.loaded_seen = loaded_n;
+        cur_preset = loaded_preset;
+        set_dirty = 0;
+        ui.redraw = 1;
+    }
     touch_poll();
     keys = touch_keys();
     for (k = 0; k < NKEYS; k++) {
@@ -1000,7 +1235,7 @@ static void input(void)
                 post(EV_EDIT, ui.cursor, (uint32_t)ED_NOTE | (uint32_t)(note - base + 64) << 8);
                 if (!sq.running)
                     post(EV_NOTE_ON, (uint32_t)note, v);   /* and hear it */
-                ui.cursor = (uint8_t)((ui.cursor + 1u) % (uint32_t)seq_len());
+                edit_move(1);
                 set_dirty = 1;
                 ui.redraw = 1;
             } else if (sq.running) {           /* transpose: the key is the new root */
@@ -1020,6 +1255,26 @@ static void input(void)
         uint32_t bit = 1u << k;
         if (!(btn & bit) || (ui.btn & bit))
             continue;
+        if (k == B_SAVE && backup_hold) {      /* a backup is streaming: nothing is written meanwhile */
+            app_say("SAVE", "BACKUP RUNNING");
+            continue;
+        }
+        if (ui.save) {                         /* the SAVE screen: SAVE goes on, any other button cancels */
+            if (k == B_SAVE && (ui.save == 1 && presets[ui.save_slot].used)) {
+                ui.save = 2;                   /* a slot in use: OVERWRITE? NO / YES */
+                ui.save_yes = 0;
+            } else if (k == B_SAVE && (ui.save == 1 || ui.save_yes)) {
+                ui.save = 0;
+                preset_save(ui.save_slot, ui.save_name);
+            } else if (k == B_SAVE)
+                ui.save = 1;                   /* NO: back to choosing */
+            else {
+                ui.save = 0;
+                app_say("SAVE", "CANCELLED");
+            }
+            ui.redraw = 1;
+            continue;
+        }
         if (ui.list && k == B_ENV) {           /* delete: twice, within two seconds */
             int c = ui.list_cur;
             ui.list_until = plat_ms() + 6000u;
@@ -1033,10 +1288,9 @@ static void input(void)
                 app_say("ENV AGAIN", "TO DELETE");
             }
             ui.redraw = 1;
-        } else if (ui.list && k == B_SAVE && !presets[ui.list_cur].used) {
-            preset_save(ui.list_cur);          /* an empty slot of the list: saved right there */
-            ui.list_until = plat_ms() + 6000u;
-            ui.redraw = 1;
+        } else if (k == B_OCTDN && ui.edit) {
+            ui.oct_hold = 1;                   /* the editor: on release, unless K4 turned meanwhile (STEPS) */
+            ui.oct_used = 0;
         } else if (k == B_OCTDN)
             octave_step(-1);
         else if (k == B_OCTUP)
@@ -1055,12 +1309,14 @@ static void input(void)
             ui.edit = (uint8_t)!ui.edit;
             if (ui.cursor >= seq_len())
                 ui.cursor = 0;
+            edit_page_sync();
             ui.redraw = 1;
         } else if (ui.edit && (k == B_ENV || k == B_LFO)) {
             post(EV_EDIT, ui.cursor, k == B_ENV ? ED_ACC : ED_SLIDE);
             set_dirty = 1;
         } else if (k == B_ENV || k == B_LFO || k == B_ARP) {
-            post(EV_MUTATE, k == B_ENV ? ACID_MUT_TIME : k == B_LFO ? ACID_MUT_PITCH : ACID_MUT_ARTICULATION, 0);
+            post(EV_MUTATE, k == B_ENV ? ACID_MUT_TIME : k == B_LFO ? ACID_MUT_PITCH : ACID_MUT_ARTICULATION,
+                 (uint32_t)view_base());       /* the page on view */
             set_dirty = 1;
         } else if (k == B_HOME) {              /* the four sound pages in turn (VCF, VOICE, PATT, SEQ); from the editor,
                                                   the list or an effect page, straight to VCF */
@@ -1075,33 +1331,54 @@ static void input(void)
             set.locked = (uint8_t)!set.locked;
             set_dirty = 1;
             app_say("LOCK", set.locked ? "ON: MUTATE" : "OFF: NEW SEED");
-        } else if (k == B_SAVE)
-            ui.save_t = plat_ms() | 1u;        /* acts on release (a new preset) or after a second held (over) */
-    }
-    if (ui.save_t) {                           /* SAVE: a tap saves a new preset, a second held saves over the loaded one */
-        if (btn >> B_SAVE & 1u) {
-            if (plat_ms() - ui.save_t >= 1000u) {
-                ui.save_t = 0;
-                preset_save(cur_preset >= 0 ? cur_preset : -1);
-            }
-        } else {
-            ui.save_t = 0;
-            preset_save(-1);
+        } else if (k == B_SAVE) {
+            save_open();
+            ui.redraw = 1;
         }
+    }
+    if (ui.oct_hold && !(btn >> B_OCTDN & 1u)) {   /* OCT- let go in the editor: the octave, if K4 did not turn */
+        ui.oct_hold = 0;
+        if (!ui.oct_used)
+            octave_step(-1);
     }
     for (k = 0; k < NE; k++) {
         if ((e = plat_enc((int)k)) == 0)
             continue;
+        if (ui.save) {                         /* PRESETS: the slot; SELECT: a new name; in OVERWRITE? any: NO / YES */
+            if (ui.save == 2)
+                ui.save_yes = (uint8_t)(e > 0);
+            else if (k == EN_PRESET)
+                save_slot_to(((ui.save_slot + e) % NPRESETS + NPRESETS) % NPRESETS);
+            else if (k == EN_SELECT || k == EN_K1) {
+                ui.save_named = 1;
+                save_new_name();
+            }
+            ui.redraw = 1;
+            continue;
+        }
         if (k == EN_PRESET) {                  /* through the saved presets, loading each */
             preset_step(e);
             continue;
         }
-        if (ui.edit && (k == EN_SELECT || k == EN_K1)) {
-            int32_t len = seq_len(), c = ((int32_t)ui.cursor + e) % len;
-            ui.cursor = (uint8_t)(c < 0 ? c + len : c);
+        if (ui.edit && k == EN_K4 && ui.oct_hold) {   /* OCT- held + K4: the pattern's length */
+            int32_t v = set.steps + e;
+            char t[8];
+            set.steps = (uint8_t)(v < 1 ? 1 : v > ACID_MAX_STEPS ? ACID_MAX_STEPS : v);
+            if (ui.cursor >= set.steps)
+                ui.cursor = (uint8_t)(set.steps - 1);
+            ui.oct_used = 1;
+            edit_page_sync();
+            set_dirty = 1;
+            int_text(set.steps, t);
+            app_say("STEPS", t);
+        } else if (ui.edit && k == EN_SELECT) {
+            edit_move(e);
             ui.redraw = 1;
-        } else if (ui.edit && k >= EN_K2 && k <= EN_K4) {
-            post(EV_EDIT, ui.cursor, (uint32_t)(k == EN_K2 ? ED_OCT : k == EN_K3 ? ED_GATE : ED_SEMI) | (e > 0 ? 1u : 0u) << 8);
+        } else if (ui.edit && k == EN_K4) {
+            edit_page(e);
+            ui.redraw = 1;
+        } else if (ui.edit && k >= EN_K1 && k <= EN_K3) {   /* K1 gate, K2 octave, K3 a semitone */
+            post(EV_EDIT, ui.cursor, (uint32_t)(k == EN_K1 ? ED_GATE : k == EN_K2 ? ED_OCT : ED_SEMI) | (e > 0 ? 1u : 0u) << 8);
             set_dirty = 1;
         } else if (k == EN_SELECT) {
             set.page = (uint8_t)((set.page + (e > 0 ? 1u : NPAGES - 1u)) % NPAGES);
@@ -1148,12 +1425,25 @@ static void note_name(int32_t note, char *b)
 /* the pattern strip: a cell a step, as the SEQ module's LEDs (green note, blue tie, amber slide,
  * now in the acid editor's colours of the VCV modules: blue note, dark blue tie, pale accent, cyan slide), the step
  * under way framed white */
+/* the 16 steps on view (a page of the 64, as the ATEK303 SEQ's 1:4 .. 4:4): running, the one that plays; the
+ * editor's, the cursor's; stopped, the first */
+static int32_t view_base(void)
+{
+    int32_t s = ui.edit ? ui.cursor : sq.running ? sq.step : 0;
+    return s / 16 * 16;
+}
+static void draw_pages(int32_t x, int32_t y)   /* the four pages: the one on view lit, the ones beyond the steps dark */
+{
+    int32_t k, len = seq_len(), on = view_base() / 16;
+    for (k = 0; k < 4; k++)
+        cv_rect(x + k * 15, y, 12, 7, k == on ? C_LOGO : k * 16 < len ? C_GRAY : C_LINE);
+}
 static void draw_pattern(int32_t y)
 {
-    int32_t i, len = seq_len(), cur = sq.step;
+    int32_t n, len = seq_len(), cur = sq.step, base = view_base();
     const acid_grid_t *g = &sq.grid;
-    for (i = 0; i < 16; i++) {
-        int32_t x = 1 + i * 15;
+    for (n = 0; n < 16; n++) {
+        int32_t x = 1 + n * 15, i = base + n;
         uint16_t c = C_LINE;
         if (i < len && g->gate[i]) {
             if (g->tie[i])
@@ -1221,7 +1511,7 @@ static void draw_editor(void)
     static const uint8_t BLACK[12] = {0, 1, 0, 1, 0, 0, 1, 0, 1, 0, 1, 0};
     static const char *const ROW[5] = {"UP", "DOWN", "GATE", "ACC", "SLIDE"};
     const acid_grid_t *g = &sq.grid;
-    int32_t i, r, len = seq_len(), cur = ui.cursor, play = sq.running ? sq.step : -1;
+    int32_t n, i, r, len = seq_len(), cur = ui.cursor, base = view_base(), play = sq.running ? sq.step - base : -1;
     const uint16_t NOTE = AK_NOTE, ACC = AK_ACCENT, TIE = AK_TIE;
     const uint16_t SLIDE = AK_SLIDE, ROWA = RGB(0x16, 0x18, 0x1C), ROWB = RGB(0x22, 0x25, 0x2B);
     /* the roll: 12 rows of 8 px, B at the top */
@@ -1235,8 +1525,9 @@ static void draw_editor(void)
     }
     for (i = 4; i < 16; i += 4)
         cv_rect(ED_X + i * ED_W - 1, 2, 1, 96, C_DIM);
-    for (i = 0; i < 16; i++) {
-        int32_t x = ED_X + i * ED_W, y;
+    for (n = 0; n < 16; n++) {
+        int32_t x = ED_X + n * ED_W, y;
+        i = base + n;
         if (i >= len) {
             cv_rect(x, 2, ED_W, 96, C_BLACK);
             continue;
@@ -1251,7 +1542,7 @@ static void draw_editor(void)
             continue;
         y = 2 + (11 - step_pc(g, i)) * 8;
         cv_rect(x + 1, y + 1, ED_W - 2, 5, g->tie[i] ? TIE : g->accent[i] ? ACC : NOTE);
-        if (g->slide[i] && i + 1 < len && g->gate[i + 1]) {   /* the slide: a line to the next note */
+        if (g->slide[i] && i + 1 < len && g->gate[i + 1] && n < 15) {   /* the slide: a line to the next note */
             int32_t y2 = 2 + (11 - step_pc(g, i + 1)) * 8;
             cv_line(x + ED_W - 2, y + 3, x + ED_W + ED_W / 2, y2 + 3, SLIDE);
         }
@@ -1264,8 +1555,8 @@ static void draw_editor(void)
     for (r = 0; r < 5; r++) {
         int32_t y = 4 + r * 16;
         cv_text(2, y + 1, &FONT_T, ROW[r], C_GRAY);
-        for (i = 0; i < 16; i++) {
-            int32_t x = ED_X + i * ED_W, oc = step_oct(g, i);
+        for (n = 0; n < 16; n++) {
+            int32_t x = ED_X + n * ED_W, i = base + n, oc = step_oct(g, i);
             uint16_t c = RGB(28, 30, 40);
             int on = i < len && g->gate[i];
             if (i >= len)
@@ -1287,8 +1578,8 @@ static void draw_editor(void)
                 cv_rect(x, y + 14, ED_W, 1, C_WHITE);
         }
     }
-    cv_text(2, 86, &FONT_T, "K1 STEP  K2 UP/DN  K3 GATE  K4 NOTE", C_DIM);
-    cv_text(2, 97, &FONT_T, "KEY NOTE  ENV ACC  LFO SLIDE  REC UNDO", C_DIM);
+    cv_text(2, 86, &FONT_T, "SEL STEP  K1 GATE  K2 OCT  K3 NOTE  K4 PAGE", C_DIM);
+    cv_text(2, 97, &FONT_T, "KEY NOTE ENV ACC LFO SLD REC UNDO OCT-+K4 LEN", C_DIM);
     cv_blit(0, 132);
 }
 
@@ -1312,14 +1603,71 @@ static void draw_list(void)
             t[1] = (char)('0' + (i + 1) % 10);
             t[2] = 0;
             cv_text(10, y + 2, &FONT_B, t, cur ? C_WHITE : C_DIM);
-            if (presets[i].used)
+            if (presets[i].used) {
                 cv_text(40, y + 2, &FONT_B, presets[i].name, i == cur_preset ? C_HI : cur ? C_WHITE : C_GRAY);
-            else
+                if (i == pend_preset)          /* chosen, on at the end of the pattern */
+                    cv_text(196, y + 3, &FONT_XS, "NEXT", AK_AMBER);
+            } else
                 cv_text(40, y + 3, &FONT_XS, "- EMPTY -", C_DIM);
         }
         if (band) {
             cv_text(4, 84, &FONT_T, "PRESETS MOVE  ENV x2 DELETE  SAVE HERE", C_DIM);
             cv_text(4, 94, &FONT_T, "HOME CLOSE", C_DIM);
+        }
+        cv_blit(0, band ? 116 : 32);
+    }
+}
+
+/* the SAVE screen (as on the FMini-1): slot, OVERWRITE or EMPTY, the name; then OVERWRITE? NO / YES */
+static void draw_save(void)
+{
+    char t[24];
+    int32_t band, x;
+    int used = presets[ui.save_slot].used;
+    for (band = 0; band < 2; band++) {
+        cv_begin(240, band ? 124 : 84, C_BLACK);
+        cv_rect(4, 0, 2, band ? 120 : 84, C_LOGO);   /* a frame down the sides */
+        cv_rect(234, 0, 2, band ? 120 : 84, C_LOGO);
+        if (band)
+            cv_rect(4, 118, 232, 2, C_LOGO);
+        else
+            cv_rect(4, 0, 232, 2, C_LOGO);
+        if (ui.save == 1 && !band) {
+            t[0] = (char)('0' + (ui.save_slot + 1) / 100);
+            t[1] = (char)('0' + (ui.save_slot + 1) / 10 % 10);
+            t[2] = (char)('0' + (ui.save_slot + 1) % 10);
+            t[3] = 0;
+            cv_text(120 - text_w(&FONT_B, "SAVE PRESET") / 2, 8, &FONT_B, "SAVE PRESET", C_WHITE);
+            x = cv_text(18, 40, &FONT_B, t, C_WHITE);
+            cv_text(x + 12, 44, &FONT_XS, used ? "OVERWRITE" : "EMPTY", used ? AK_AMBER : C_GRAY);
+        } else if (ui.save == 1) {
+            cv_text(120 - text_w(&FONT_B, ui.save_name) / 2, 0, &FONT_B, ui.save_name, C_HI);
+            cv_text(16, 40, &FONT_T, "PRESETS  SLOT", C_GRAY);
+            cv_text(130, 40, &FONT_T, "SELECT  NAME", C_GRAY);
+            cv_text(16, 60, &FONT_T, "SAVE = NEXT", C_GRAY);
+            cv_text(130, 60, &FONT_T, "OTHER = CANCEL", C_GRAY);
+        } else if (!band) {
+            t[0] = (char)('0' + (ui.save_slot + 1) / 100);
+            t[1] = (char)('0' + (ui.save_slot + 1) / 10 % 10);
+            t[2] = (char)('0' + (ui.save_slot + 1) % 10);
+            t[3] = ' ';
+            t[4] = 0;
+            text_cat(t, presets[ui.save_slot].name);
+            cv_text(120 - text_w(&FONT_B, "OVERWRITE?") / 2, 12, &FONT_B, "OVERWRITE?", C_WHITE);
+            cv_text(120 - text_w(&FONT_XS, t) / 2, 50, &FONT_XS, t, C_GRAY);
+        } else {
+            int32_t i;
+            for (i = 0; i < 2; i++) {          /* NO / YES: the chosen one filled */
+                int on = i == ui.save_yes;
+                int32_t bx = 22 + i * 104;
+                const char *w = i ? "YES" : "NO";
+                cv_rect(bx, 0, 92, 44, on ? C_LOGO : C_LINE);
+                if (!on)
+                    cv_rect(bx + 2, 2, 88, 40, C_BLACK);
+                cv_text(bx + 46 - text_w(&FONT_B, w) / 2, 12, &FONT_B, w, C_WHITE);
+            }
+            cv_text(16, 60, &FONT_T, "TURN  NO / YES", C_GRAY);
+            cv_text(130, 60, &FONT_T, "SAVE = OK", C_GRAY);
         }
         cv_blit(0, band ? 116 : 32);
     }
@@ -1331,11 +1679,11 @@ static void draw(void)
     int32_t note = ui_note, i;
     uint32_t now = plat_ms();
     cv_begin(240, 32, C_BLACK);
-    if (now < ui.msg_until) {
+    if (now < ui.msg_until && !ui.save) {
         int32_t x = cv_text(10, 6, &FONT_B, ui.msg[0], C_WHITE);
         cv_text(x + 8, 6, &FONT_B, ui.msg[1], C_HI);
     } else {
-        int32_t x = cv_text(10, 6, &FONT_B, ui.list ? "PRESETS" : ui.edit ? "EDIT" : cur_preset >= 0 ? presets[cur_preset].name : APP_NAME, C_WHITE);
+        int32_t x = cv_text(10, 6, &FONT_B, ui.save ? "SAVE" : ui.list ? "PRESETS" : ui.edit ? "EDIT" : cur_preset >= 0 ? presets[cur_preset].name : APP_NAME, C_WHITE);
         if (ui.edit) {                         /* the step under the cursor: number, note, accent, slide */
             const acid_grid_t *gg = &sq.grid;
             int st = ui.cursor;
@@ -1345,6 +1693,14 @@ static void draw(void)
                 char nn[4];
                 int_text(st + 1, nn);
                 text_cat(t, nn);
+                if (seq_len() > 16) {          /* the page, as the SEQ module's 1:4 .. 4:4 */
+                    text_cat(t, "  ");
+                    int_text(st / 16 + 1, nn);
+                    text_cat(t, nn);
+                    text_cat(t, ":");
+                    int_text((seq_len() + 15) / 16, nn);
+                    text_cat(t, nn);
+                }
             }
             x = cv_text(x + 8, 8, &FONT_XS, t, C_GRAY);
             t[0] = 0;
@@ -1361,13 +1717,17 @@ static void draw(void)
             cv_text(232 - text_w(&FONT_XS, t), 8, &FONT_XS, t, C_HI);
             note = -1;
         } else
-            cv_text(x + 8, 8, &FONT_XS, sq.running ? "PLAY" : "", C_HI);
+            cv_text(x + 8, 8, &FONT_XS, pend_preset >= 0 || pend_gen ? "NEXT" : sq.running ? "PLAY" : "", pend_preset >= 0 || pend_gen ? AK_AMBER : C_HI);
         if (note >= 0) {
             note_name(note, t);
             cv_text(230 - text_w(&FONT_B, t), 6, &FONT_B, t, C_HI);
         }
     }
     cv_blit(0, 0);
+    if (ui.save) {
+        draw_save();
+        return;
+    }
     if (ui.list) {
         draw_list();
         return;
@@ -1402,6 +1762,8 @@ static void draw(void)
         text_cat(t, o);
     }
     cv_text(232 - text_w(&FONT_T, t), 0, &FONT_T, t, C_GRAY);
+    if (seq_len() > 16)
+        draw_pages(4, 3);
     draw_pattern(14);
     draw_nav(46);
     cv_blit(0, 170);
@@ -1480,6 +1842,22 @@ void app_frame(void)
     }
 }
 
+/* backup and restore over USB (fm1-base: tools/fm1_backup.py, --magic AT64): the settings and the four preset banks.
+ * Saving happens only on SAVE, so there is nothing to flush; while a backup streams, SAVE waits */
+int app_backup_playing(void) { return sq.running; }
+void app_backup_flush(void) {}
+void app_backup_hold(int on) { backup_hold = (uint8_t)on; }
+void app_backup_restored(void)
+{
+    store_load();
+    cur_preset = -1;
+    pend_preset = -1;
+    pend_gen = 0;
+    set_dirty = 0;
+    post(EV_APPLY, 0, 0);
+    ui.redraw = 1;
+}
+
 #ifdef PLAT_HOST
 int app_expect(const char *what, int *got)
 {
@@ -1518,13 +1896,13 @@ int app_expect(const char *what, int *got)
     else if (!strcmp(what, "cursor"))
         *got = ui.cursor;
     else if (!strncmp(what, "gate", 4) && what[4])   /* gateN: step N rest 0, note 1, tie 2 */
-        *got = sq.grid.gate[atoi(what + 4) & 15] ? (sq.grid.tie[atoi(what + 4) & 15] ? 2 : 1) : 0;
+        *got = sq.grid.gate[atoi(what + 4) & 63] ? (sq.grid.tie[atoi(what + 4) & 63] ? 2 : 1) : 0;
     else if (!strncmp(what, "acc", 3) && what[3])
-        *got = sq.grid.accent[atoi(what + 3) & 15];
+        *got = sq.grid.accent[atoi(what + 3) & 63];
     else if (!strncmp(what, "sld", 3) && what[3])
-        *got = sq.grid.slide[atoi(what + 3) & 15];
+        *got = sq.grid.slide[atoi(what + 3) & 63];
     else if (!strncmp(what, "semi", 4) && what[4])   /* semiN: step N, semitones from the root */
-        *got = acid_semi_of(sq.grid.deg[atoi(what + 4) & 15], sq.grid.oct[atoi(what + 4) & 15], set.scale);
+        *got = acid_semi_of(sq.grid.deg[atoi(what + 4) & 63], sq.grid.oct[atoi(what + 4) & 63], set.scale);
     else if (!strcmp(what, "scale"))
         *got = set.scale;
     else if (!strcmp(what, "list"))
@@ -1533,6 +1911,25 @@ int app_expect(const char *what, int *got)
         *got = ui.list_cur;
     else if (!strcmp(what, "preset"))
         *got = cur_preset;
+    else if (!strcmp(what, "save"))
+        *got = ui.save;
+    else if (!strcmp(what, "saveslot"))
+        *got = ui.save_slot;
+    else if (!strcmp(what, "steps"))
+        *got = set.steps;
+    else if (!strcmp(what, "stepgt15"))
+        *got = sq.step > 15;
+    else if (!strcmp(what, "samepage1")) {    /* the steps outside the first page as before the last change */
+        int k, same = 1;
+        for (k = 16; k < ACID_MAX_STEPS; k++)
+            same = same && sq.grid.gate[k] == sq_before.gate[k] && sq.grid.deg[k] == sq_before.deg[k]
+                   && sq.grid.oct[k] == sq_before.oct[k] && sq.grid.accent[k] == sq_before.accent[k]
+                   && sq.grid.slide[k] == sq_before.slide[k] && sq.grid.tie[k] == sq_before.tie[k];
+        *got = same;
+    } else if (!strcmp(what, "pendgen"))
+        *got = pend_gen;
+    else if (!strcmp(what, "pending"))
+        *got = pend_preset;
     else if (!strcmp(what, "npresets")) {
         int k, n = 0;
         for (k = 0; k < NPRESETS; k++)

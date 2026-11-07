@@ -53,12 +53,22 @@ Eriksson como issue o PR. Si se vuelve a clonar el emulador, hay que aplicarlo o
 
 ## Fase 2: el secuenciador (2026-11-06)
 
-El generador de patrones del ATEK303 SEQ (`src/AcidPattern.hpp` y lo que usa de `AcidGen.hpp`),
-portado a C en `app/dsp/acid_pattern.c`. Es el mismo algoritmo, con los mismos flujos de azar:
-**una semilla da exactamente el mismo patrón en VCV y en el FM-1**. Comprobado con
-`tests/pattern_golden.cpp` (el C++ original) contra `tests/pattern_port.c`: 3.840 patrones (6
-ajustes × 8 escalas × 2 longitudes × 40 semillas), cada uno con 6 mutaciones y su rejilla, salen
-idénticos byte a byte (30.720 líneas).
+El generador de patrones del ATEK303 SEQ de **UZZ-VCV-RACK** (`src/AcidPattern.hpp`, `AcidCorpus.hpp` y lo
+que usa de `AcidGen.hpp`: la versión 5, de 64 pasos y calibrada con un corpus de líneas acid), portado a
+C en `app/dsp/acid_pattern.c`. Es el mismo algoritmo, con los mismos flujos de azar: **una semilla da
+exactamente el mismo patrón en VCV y en el FM-1**. Comprobado con `tests/pattern_golden.cpp` (el C++
+original) contra `tests/pattern_port.c`: 7.680 patrones (6 ajustes × 8 escalas × 4 longitudes —64, 32,
+16 y 7— × 40 semillas), cada uno con 6 mutaciones y su rejilla, salen idénticos byte a byte (61.440
+líneas), también con la `fm_powf` de fastmath que usa el FM-1:
+
+```sh
+cd tests
+g++ -std=c++17 -I../../../VCV-Rack/UZZ-VCV-RACK/src pattern_golden.cpp -o build/pattern_golden
+gcc -std=c99 -I../app/dsp -I../base/include pattern_port.c ../app/dsp/acid_pattern.c -o build/pattern_port
+./build/pattern_golden > build/golden.txt && ./build/pattern_port > build/port.txt && cmp build/golden.txt build/port.txt
+```
+
+(Hasta el 2026-11-07 era la versión 4 del repo `ATEK303`, de 16 pasos.)
 
 El paso, el gate, el tie y el slide siguen `Atek303Seq::process` con la voz pegada (el slide lo
 hace la voz). La resolución es de 32 muestras (0,7 ms).
@@ -68,17 +78,27 @@ hace la voz). La resolución es de 32 muestras (0,7 ms).
 | | |
 | --- | --- |
 | PLAY | arranca o para (reloj interno; con reloj MIDI, lo sigue: start, stop, continue, 6 ticks por paso) |
-| SEQ | GENERATE: semilla nueva. Con LOCK, muta las tres capas |
-| ENV / LFO / EDIT | muta TIEMPO / NOTAS (octavas) / SLIDES y ACENTOS |
+| SEQ | GENERATE: semilla nueva. Con LOCK, muta las tres capas. Sonando, **espera al siguiente compás** (16 pasos; NEXT en ámbar mientras) |
+| ENV / LFO / ARP | muta TIEMPO / NOTAS (octavas) / SLIDES y ACENTOS, **en la página de 16 pasos a la vista** (al momento) |
 | HOME | recorre las páginas de sonido: VCF, VOICE, PATT, SEQ; desde el editor, la lista o un efecto, directo a VCF |
 | REC | deshace la última mutación o edición |
 | GLO | LOCK |
 | teclas | parado: tocan la voz. Sonando: **transportan** (la tecla es la nueva raíz, como en un 303) |
-| SELECT | páginas: 1 y 2 la voz (la 2 lleva GATE, la duración de las notas del secuenciador), 3 DENSITY, RANGE, ACCENTS, SLIDES, 4 STEPS, SCALE, TEMPO, ROOT |
+| SELECT | páginas: 1 y 2 la voz (la 2 lleva GATE, la duración de las notas del secuenciador), 3 DENSITY, RANGE, ACCENTS, SLIDES, 4 STEPS (1–64), SCALE, TEMPO, ROOT |
 | SAVE | guarda knobs, patrón, semilla, mutaciones, tempo, raíz y octava |
 
-Abajo, siempre, una tira de 16 pasos con los colores de los LEDs del módulo (verde nota, azul tie,
-ámbar slide, rojo acento) y el paso en curso enmarcado.
+Abajo, siempre, una tira de 16 pasos con los colores del editor acid de VCV y el paso en curso
+enmarcado.
+
+**64 pasos (2026-11-07)**, como el ATEK303 SEQ de UZZ-VCV-RACK: cuatro páginas de un compás. STEPS
+va de 1 a 64 (32 = dos páginas). La tira y el editor enseñan la página que suena (sonando), la del
+cursor (en el editor) o la primera (parado); con más de 16 pasos, cuatro marcas encima de la tira
+dicen qué página se ve (azul) y cuáles existen (gris). El editor pasa de página al llevar el cursor
+más allá del paso 16. Los presets ocupan ahora 4 objetos de la memoria (8 en cada uno: 0xD8000,
+0xDA000, 0xD4000 y 0xD6000) y su formato cambió (`AT64`): los guardados antes no se cargan.
+
+**Arranque** (valores de Javier, 2026-11-07): CUTOFF 369 Hz, RESO 80 %, ENV MOD 4 %, DECAY 707 ms;
+DENSITY 100 %, RANGE 80 %, ACCENTS 51 %, SLIDES 44 %; el primer patrón crece de esos knobs.
 
 **Diferencia a propósito con VCV:** en el módulo, DENSITY, RANGE, ACCENTS y SLIDES solo cuentan en
 el siguiente GENERATE. Aquí, al girarlos, **el patrón vuelve a crecer desde la misma semilla**
@@ -107,9 +127,12 @@ CPU en el emulador con todo puesto: alrededor del 60 % de un núcleo sonando (la
 
 **Editor de pasos** (botón EDIT): un piano roll de una octava con las filas UP, DOWN, GATE, ACC y
 SLIDE debajo, como la hoja de patrones del 303 (la idea de Javier, con una captura de un editor de
-referencia). SELECT o K1 mueven el cursor; una tecla pone la nota del paso y pasa al siguiente (con
-el secuenciador parado, además suena); K2 la octava, K3 el gate (REST, NOTE, TIE), K4 la nota de
-semitono en semitono; ENV el acento y LFO el slide; REC deshace; EDIT o HOME salen. Una nota fuera de la escala pasa la
+referencia). Desde el 2026-11-07, como pidió Javier: **SELECT** mueve el cursor por los 16 pasos de
+la página (y vuelve al primero); **K4** cambia de página repartiendo las que existen en todo su recorrido (unos 25 clics cada una con 4 páginas, como el 0–100 % de cualquier knob: 1:4 … 4:4; la
+cabecera dice «STEP 18  2:4»); **K1** el gate (REST, NOTE, TIE), **K2** la octava (UP / DOWN), **K3**
+la nota de semitono en semitono; **OCT− mantenido + K4** cambia STEPS (1–64) sin salir del editor,
+y OCT− solo baja la octava al soltarlo. Una tecla pone la nota del paso y pasa al siguiente de la
+página (con el secuenciador parado, además suena); ENV el acento y LFO el slide; REC deshace; EDIT o HOME salen. Una nota fuera de la escala pasa la
 escala a CROMÁTICA sin perder ninguna altura. La edición vuelve al patrón con `acid_import` (el
 `importRendered` del C++; 2.000 patrones van y vuelven sin cambios, `tests/pattern_import.c`).
 **Ojo:** girar DENSITY, RANGE, ACCENTS o SLIDES, o GENERATE, rehacen el patrón desde la semilla y
@@ -145,16 +168,57 @@ y hay flechas cuando quedan páginas a un lado. La tira de pasos queda justo enc
 luz a mitad de una escritura no los pierde). Cada preset guarda todo menos la página: patrón (con su
 semilla y mutaciones), voz, efectos, pasos, escala, raíz, tempo, octava y LOCK.
 
-- **SAVE** (pulsar y soltar): un preset nuevo en el siguiente hueco libre, con un nombre acid
-  aleatorio de dos palabras («SQUELCH TRIP», «SNAKE LOOP»…). Si están los 32, va al hueco siguiente
-  al último guardado, encima del que hubiera. También guarda el estado con el que arranca.
-- **SAVE mantenido 1 s**: guarda encima del preset cargado y conserva su nombre.
+- **SAVE** abre la **pantalla de guardar** (como la del FMini-1): el hueco (de 32) con EMPTY u
+  OVERWRITE y el nombre. Se abre en el preset cargado (en la lista, en el hueco del cursor; sin
+  ninguno cargado, en el primer libre). **PRESETS** cambia de hueco (el nombre sigue al del hueco),
+  **SELECT** da otro nombre acid aleatorio de dos palabras («SQUELCH TRIP», «SNAKE LOOP»…), **SAVE**
+  guarda y **cualquier otro botón cancela**. En un hueco ocupado pregunta **OVERWRITE?** con NO / YES
+  (NO de entrada; se cambia girando cualquier encoder; SAVE confirma, y con NO vuelve atrás). También
+  guarda el estado con el que arranca.
 - **Encoder PRESETS**: el primer giro abre la **lista de presets** (los 32 huecos, 8 a la vista) en el
-  cargado; los siguientes mueven el cursor y cargan al momento el preset que pisa. En la lista:
-  **ENV dos veces** (en 2 s) borra el seleccionado, porque la primera solo avisa; **SAVE en un hueco
-  vacío** guarda ahí; **HOME** la cierra. Si no se toca, se cierra sola a los 6 s.
+  cargado; los siguientes mueven el cursor y cargan el preset que pisan: **parado, al momento;
+  en marcha, al acabar el patrón**, como en un 303 (pasa al paso 1 del nuevo; mientras espera, la
+  lista y la cabecera dicen **NEXT** en ámbar). Si se elige otro antes, entra el último. En la lista:
+  **ENV dos veces** (en 2 s) borra el seleccionado, porque la primera solo avisa; **SAVE** abre la
+  pantalla de guardar en ese hueco; **HOME** la cierra. Si no se toca, se cierra sola a los 6 s.
 
-Prueba: `app/tests/presets.txt` (guardar, cambiar, recargar, sobrescribir y reiniciar).
+**De fábrica (2026-11-07)**: un FM-1 sin presets guardados arranca con 8 en los huecos 1–8 (tabla
+`FACTORY` en `app.c`; el patrón sale de una semilla fija con los knobs del preset, igual en todos los
+FM-1). Solo se ponen donde la memoria no tiene nada: un FM-1 que ya guardó presets no los recibe, y
+uno borrado no vuelve.
+
+**Los presets de Javier como los de fábrica.** Se hacen en el FM-1 y se sacan con la copia por USB
+(fm1-base, `backup = true`, magic `AT64`):
+
+1. En el FM-1 con ATEK303, guardar los presets en los huecos que se quiera (y borrar los que sobren).
+   El estado en el que quede al último SAVE será también **el de arranque** de un FM-1 nuevo.
+2. Pararlo (PLAY apagado) y, con el cable puesto:
+   `python3 base/tools/fm1_backup.py backup mis-presets.bak --magic AT64`
+   (en el venv con mido y python-rtmidi, como `fm1_install.py`). La copia es también la de seguridad
+   de esos presets; `restore` la devuelve (pide confirmación en la pantalla: SEL sí, HOME no).
+3. `python3 tools/factory_from_backup.py mis-presets.bak` escribe `app/factory_presets.h` (lista los
+   presets que lleva). También lee una imagen de flash de 1 MiB (la del simulador, `flash_dump`).
+4. `./build.sh` (y `--web`): con esa cabecera, los 32 huecos y el arranque salen de ahí y la tabla
+   `FACTORY` deja de usarse. Borrar la cabecera vuelve a la tabla.
+
+Probado en el simulador: presets hechos y uno borrado → `flash_dump` → cabecera → un FM-1 nuevo
+arranca con esos presets, sin el borrado, y con el estado guardado. Las pruebas de `app/tests/`
+cuentan con la tabla: con la cabecera de Javier, `presets.txt` y `steps64.txt` cambian.
+
+| # | Nombre | Escala / raíz | BPM | Carácter |
+| --- | --- | --- | --- | --- |
+| 1 | ACID CLASSIC | ACID / C | 125 | saw, reso alta, delay 1/8. |
+| 2 | SQUARE SQUELCH | ACID / D | 130 | square, reso al límite, overdrive |
+| 3 | RUBBER BASS | MEN / A | 120 | grave y redondo, poca reso, seco |
+| 4 | PHRYGIAN RAT | FRIG / E | 135 | RAT |
+| 5 | DUB ACID | DOR / G | 118 | delay 1/4. largo, reverb, chorus |
+| 6 | HYPER ACID | ACID / C | 145 | denso, muchos slides, fuzz |
+| 7 | FLANGE WORM | BLUE / F | 128 | square con flanger |
+| 8 | SPACE MELT | ARM / B | 100 | decay largo, chorus, delay y reverb |
+
+Pruebas: `app/tests/steps64.txt` (64 pasos, páginas, mutación por página, preset en el hueco 32
+tras reiniciar) y `app/tests/presets.txt` (los 8 de fábrica, guardar, cambiar, recargar, sobrescribir,
+reiniciar, y el cambio en marcha que espera al final del patrón).
 
 ## Recuperación
 

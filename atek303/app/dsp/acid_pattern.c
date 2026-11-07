@@ -5,6 +5,7 @@
  * Names and order follow the C++ so the two read side by side; every random draw happens in the
  * same order on the same stream, which is what keeps a seed's pattern identical. */
 #include "acid_pattern.h"
+#include "fastmath.h"                              /* fm_powf: the same 61,440 test lines as std::pow */
 
 const acid_scale_t ACID_SCALES[ACID_SCALES_LEN] = {
     {"Acid (pent. menor)", "ACID", 5, {0, 3, 5, 7, 10}},
@@ -46,17 +47,24 @@ int acid_semi_of(int d, int o, int scale)
     return sc->s[i] + 12 * (o + (d - i) / sc->n);
 }
 
-static float semi_weight(int semi)
+/* AcidCorpus.hpp: frequencies measured over a corpus of acid lines (140 bars of 16 steps, 1928 notes); aggregate
+ * numbers, not the music */
+static const float PITCH_CLASS_WEIGHT[12] = {5.38f, 1.38f, 1.23f, 1.73f, 1.12f, 1.81f,
+                                             1.00f, 1.46f, 1.73f, 1.19f, 2.19f, 1.08f};
+#define VOCAB_MAX 7
+static const float VOCAB_SIZE_CDF[VOCAB_MAX] = {0.143f, 0.264f, 0.457f, 0.636f, 0.772f, 0.851f, 1.000f};
+static const float SLIDE_BY_LEAP[13] = {0.074f, 0.274f, 0.348f, 0.217f, 0.525f, 0.307f, 0.406f,
+                                        0.241f, 0.307f, 0.226f, 0.280f, 0.320f, 0.391f};
+#define TIE_RATE 0.072f
+#define ACCENT_CELL_START 1.05f
+#define ACCENT_CELL_REST 0.95f
+static float slide_base(int leap)
 {
-    switch (((semi % 12) + 12) % 12) {
-    case 0: return 2.4f;
-    case 7: return 2.2f;
-    case 3: return 1.7f;
-    case 10: return 1.6f;
-    case 5: return 1.3f;
-    default: return 1.0f;
-    }
+    if (leap < 0)
+        leap = -leap;
+    return SLIDE_BY_LEAP[leap > 12 ? 12 : leap];
 }
+static float semi_weight(int semi) { return PITCH_CLASS_WEIGHT[((semi % 12) + 12) % 12]; }
 
 /* ------------------------------------------------------------- the pattern --- */
 static void pitch_zero(acid_pitch_t *p) { p->degree = p->octave = 0; p->accent = p->slide_out = 0; }
@@ -65,7 +73,7 @@ void acid_clear(acid_pattern_t *pat)
 {
     int i;
     pat->seed = 1u;
-    pat->algorithm_version = 4;
+    pat->algorithm_version = 5;
     pat->time_length = ACID_MAX_STEPS;
     pat->pitch_length = 1;
     for (i = 0; i < ACID_MAX_STEPS; i++) {
@@ -116,16 +124,13 @@ void acid_sanitize_ex(acid_pattern_t *pat, int scale, int keep_slides)
     for (s = 0; s < pat->time_length && e < pat->pitch_length; s++)
         if (pat->time[s] == ACID_NOTE)
             event_step[e++] = s;
+    /* a slide needs the next step to attack; into the same pitch it is legato (v5: allowed) */
     for (i = 0; !keep_slides && i < pat->pitch_length; i++) {
-        int st, next_step, next_event, here, there;
+        int st;
         if (!pat->pitch[i].slide_out)
             continue;
         st = event_step[i];
-        next_step = (st + 1) % pat->time_length;
-        next_event = (i + 1) % pat->pitch_length;
-        here = acid_semi_of(pat->pitch[i].degree, pat->pitch[i].octave, si);
-        there = acid_semi_of(pat->pitch[next_event].degree, pat->pitch[next_event].octave, si);
-        if (st < 0 || pat->time[next_step] != ACID_NOTE || here == there)
+        if (st < 0 || pat->time[(st + 1) % pat->time_length] != ACID_NOTE)
             pat->pitch[i].slide_out = 0;
     }
 }
@@ -190,8 +195,13 @@ static float activation_threshold(float u, int cell_start)
 }
 static int choose_vocab_size(float u, int scale_size)
 {
-    int n = u < 0.10f ? 1 : u < 0.55f ? 2 : u < 0.90f ? 3 : 4;
-    return imin(n, scale_size);
+    int n = VOCAB_MAX, i;
+    for (i = 0; i < VOCAB_MAX; i++)
+        if (u < VOCAB_SIZE_CDF[i]) {
+            n = i + 1;
+            break;
+        }
+    return n < scale_size ? n : scale_size;
 }
 static void sort_ints(int *v, int n)               /* std::sort on a few distinct ints */
 {
@@ -215,6 +225,8 @@ static int build_vocab(int *voc, int scale, int want, rng_t *rng)
         for (d = 1; d < sc->n; d++)
             if (!taken[d])
                 total += semi_weight(sc->s[d]);
+        if (total <= 0.0f)
+            break;
         r = rng_unit(rng) * total;
         for (d = 1; d < sc->n; d++) {
             if (taken[d])
@@ -281,6 +293,7 @@ int acid_generate(acid_pattern_t *pat, const acid_params_t *params, uint32_t see
     float density = clamp01(params->density), range = clamp01(params->range);
     float accent_amount = clamp01(params->accent), slide_amount = clamp01(params->slide);
     float tie_amount = clamp01(params->tie), tie_chance;
+    float accent_curve = (accent_amount > 0.0f ? 0.90f * fm_powf(accent_amount, 1.27f) : 0.0f);
     rng_t style, time_rng, pitch_rng, octave_rng, accent_rng, slide_rng;
     int cell, contour, want_vocab, forced = 0, s, i, candidate_count = 0, vocab_length, event;
     float activation[ACID_MAX_STEPS];
@@ -297,7 +310,7 @@ int acid_generate(acid_pattern_t *pat, const acid_params_t *params, uint32_t see
     rng_init(&slide_rng, rng_mix(seed, S_SLIDE));
     acid_clear(pat);
     pat->seed = seed ? seed : 1u;
-    pat->algorithm_version = 4;
+    pat->algorithm_version = 5;
     pat->time_length = (uint8_t)length;
     cell = rng_unit(&style) < 0.25f ? 3 : 4;
     contour = pick_contour(&style);
@@ -308,7 +321,7 @@ int acid_generate(acid_pattern_t *pat, const acid_params_t *params, uint32_t see
         if (activation[s] < activation[forced])
             forced = s;
     }
-    tie_chance = fminf_(0.90f, 0.16f + 0.64f * tie_amount);
+    tie_chance = fminf_(0.90f, 2.77f * TIE_RATE * (tie_amount / 0.4f));
     for (s = 1; s < length; s++) {
         float chain = tie_plan[s - 1] ? 0.35f : 1.0f;
         /* (the C++ evaluates the order test first and draws only when it holds) */
@@ -398,7 +411,7 @@ int acid_generate(acid_pattern_t *pat, const acid_params_t *params, uint32_t see
             int amount = rng_unit(&octave_rng) < two ? 2 : 1;
             p->octave = (int8_t)(rng_unit(&octave_rng) < 0.55f ? amount : -amount);
         }
-        acc_chance = cell_pos == 0 ? fminf_(0.95f, 1.25f * accent_amount) : fminf_(0.85f, 0.85f * accent_amount);
+        acc_chance = cell_pos == 0 ? fminf_(0.95f, ACCENT_CELL_START * accent_curve) : fminf_(0.90f, ACCENT_CELL_REST * accent_curve);
         p->accent = rng_unit(&accent_rng) < acc_chance;
         p->slide_out = 0;
     }
@@ -434,8 +447,8 @@ int acid_generate(acid_pattern_t *pat, const acid_params_t *params, uint32_t see
         leap = iabs(acid_semi_of(next->degree, next->octave, scale) - acid_semi_of(here->degree, here->octave, scale));
         if (leap == 0)
             continue;
-        base = leap <= 5 ? 0.40f : leap == 12 ? 0.30f : 0.16f;
-        here->slide_out = rng_unit(&slide_rng) < fminf_(0.95f, base * 4.5f * slide_amount);
+        base = slide_base(leap);            /* v5: the big leaps slide more, the octave most */
+        here->slide_out = rng_unit(&slide_rng) < fminf_(0.95f, base * 2.0f * slide_amount);
     }
     acid_sanitize(pat, scale);
     return contour;
@@ -490,12 +503,27 @@ static void insert_pitch(acid_pattern_t *pat, int e, acid_pitch_t value)
     pat->pitch[e] = value;
     pat->pitch_length++;
 }
-static int mutate_time(acid_pattern_t *pat, rng_t *rng)
+/* the events whose attacks fall in [lo, hi): a page's */
+static int events_in_range(const acid_pattern_t *pat, int lo, int hi, int *out)
 {
-    int length = pat->time_length, attempt, s, i;
+    int found = 0, ev = 0, s;
+    for (s = 0; s < pat->time_length; s++) {
+        if (pat->time[s] != ACID_NOTE)
+            continue;
+        if (s >= lo && s < hi && found < ACID_MAX_STEPS)
+            out[found++] = ev;
+        ev++;
+    }
+    return found;
+}
+static int mutate_time(acid_pattern_t *pat, rng_t *rng, int lo, int hi)
+{
+    int length = pat->time_length, attempt, s, i, span = hi - lo;
+    if (span <= 0)
+        return 0;
     for (attempt = 0; attempt < 48; attempt++) {
-        int from = (int)(rng_next(rng) % (uint32_t)length);
-        int to = (int)(rng_next(rng) % (uint32_t)length);
+        int from = lo + (int)(rng_next(rng) % (uint32_t)span);
+        int to = lo + (int)(rng_next(rng) % (uint32_t)span);
         int after = (from + 1) % length;
         if (from == to || pat->time[from] != ACID_NOTE || pat->time[to] != ACID_REST || pat->time[after] == ACID_TIE)
             continue;
@@ -503,7 +531,7 @@ static int mutate_time(acid_pattern_t *pat, rng_t *rng)
         pat->time[to] = ACID_NOTE;
         return 1;
     }
-    for (s = 1; s < length; s++) {
+    for (s = imax(1, lo); s < hi; s++) {
         int e = 0, prev;
         if (pat->time[s] != ACID_TIE)
             continue;
@@ -515,7 +543,7 @@ static int mutate_time(acid_pattern_t *pat, rng_t *rng)
         pat->time[s] = ACID_NOTE;
         return 1;
     }
-    for (s = 1; s < length; s++) {
+    for (s = imax(1, lo); s < hi; s++) {
         int e;
         if (pat->time[s] != ACID_NOTE || pat->time[s - 1] == ACID_REST)
             continue;
@@ -526,12 +554,16 @@ static int mutate_time(acid_pattern_t *pat, rng_t *rng)
     }
     return 0;
 }
-static int mutate_pitch(acid_pattern_t *pat, rng_t *rng)
+static int mutate_pitch(acid_pattern_t *pat, rng_t *rng, int lo, int hi)
 {
     acid_pitch_t *p;
+    int cand[ACID_MAX_STEPS], n;
     if (!pat->pitch_length)
         return 0;
-    p = &pat->pitch[(int)(rng_next(rng) % pat->pitch_length)];
+    n = events_in_range(pat, lo, hi, cand);
+    if (n <= 0)
+        return 0;
+    p = &pat->pitch[cand[rng_next(rng) % (uint32_t)n]];
     if (p->octave >= 2)
         p->octave--;
     else if (p->octave <= -2)
@@ -540,10 +572,13 @@ static int mutate_pitch(acid_pattern_t *pat, rng_t *rng)
         p->octave += (rng_next(rng) & 1u) ? 1 : -1;
     return 1;
 }
-static int mutate_articulation(acid_pattern_t *pat, rng_t *rng, int scale)
+static int mutate_articulation(acid_pattern_t *pat, rng_t *rng, int scale, int lo, int hi)
 {
-    int e;
+    int cand[ACID_MAX_STEPS], n, span = hi - lo;
     if (!pat->pitch_length)
+        return 0;
+    n = events_in_range(pat, lo, hi, cand);
+    if (n <= 0 || span <= 0)
         return 0;
     if (rng_next(rng) & 1u) {
         int event_at[ACID_MAX_STEPS], i, s, attempt, ev = 0;
@@ -552,8 +587,8 @@ static int mutate_articulation(acid_pattern_t *pat, rng_t *rng, int scale)
         for (s = 0; s < pat->time_length; s++)
             if (pat->time[s] == ACID_NOTE)
                 event_at[s] = ev++;
-        for (attempt = 0; attempt < pat->time_length; attempt++) {
-            int st = (int)(rng_next(rng) % pat->time_length), next = (st + 1) % pat->time_length;
+        for (attempt = 0; attempt < span; attempt++) {
+            int st = lo + (int)(rng_next(rng) % (uint32_t)span), next = (st + 1) % pat->time_length;
             int a = event_at[st], b = event_at[next], here, there;
             if (a < 0 || b < 0)
                 continue;
@@ -565,28 +600,40 @@ static int mutate_articulation(acid_pattern_t *pat, rng_t *rng, int scale)
             return 1;
         }
     }
-    e = (int)(rng_next(rng) % pat->pitch_length);
-    pat->pitch[e].accent = (uint8_t)!pat->pitch[e].accent;
+    {
+        int e = cand[rng_next(rng) % (uint32_t)n];
+        pat->pitch[e].accent = (uint8_t)!pat->pitch[e].accent;
+    }
     return 1;
 }
-static int mutate(acid_pattern_t *pat, int layer, uint32_t index, int scale)
+static int mutate(acid_pattern_t *pat, int layer, uint32_t index, int scale, int lo, int hi)
 {
-    acid_pattern_t before = *pat;
+    acid_pattern_t before;
     uint32_t tag = layer == ACID_MUT_TIME ? 0x4d54494du : layer == ACID_MUT_PITCH ? 0x4d504954u : 0x4d415254u;
     rng_t rng;
     int changed;
+    lo = imax(0, imin(lo, pat->time_length));
+    hi = imax(lo, imin(hi, pat->time_length));
+    if (hi <= lo)
+        return 0;
+    before = *pat;
     rng_init(&rng, rng_mix(pat->seed ^ (0x9e3779b9u * index), tag));
     if (layer == ACID_MUT_TIME)
-        changed = mutate_time(pat, &rng);
+        changed = mutate_time(pat, &rng, lo, hi);
     else if (layer == ACID_MUT_PITCH)
-        changed = mutate_pitch(pat, &rng);
+        changed = mutate_pitch(pat, &rng, lo, hi);
     else
-        changed = mutate_articulation(pat, &rng, scale);
+        changed = mutate_articulation(pat, &rng, scale, lo, hi);
     acid_sanitize(pat, scale);
     return changed && !same(&before, pat);
 }
 
 int acid_mutate_burst(acid_pattern_t *pat, int layer, uint32_t first, int operations, int scale, uint32_t *last)
+{
+    return acid_mutate_burst_range(pat, layer, first, operations, scale, last, 0, ACID_MAX_STEPS);
+}
+int acid_mutate_burst_range(acid_pattern_t *pat, int layer, uint32_t first, int operations, int scale, uint32_t *last,
+                            int lo, int hi)
 {
     acid_pattern_t before = *pat;
     int wanted = imax(1, operations), applied = 0, attempt;
@@ -594,7 +641,7 @@ int acid_mutate_burst(acid_pattern_t *pat, int layer, uint32_t first, int operat
     for (attempt = 0; attempt < 32; attempt++) {
         uint32_t candidate = first + (uint32_t)attempt;
         *last = candidate;
-        if (mutate(pat, layer, candidate, scale))
+        if (mutate(pat, layer, candidate, scale, lo, hi))
             applied++;
         if (applied >= wanted && !same(&before, pat))
             return 1;

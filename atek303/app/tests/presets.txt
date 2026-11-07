@@ -1,60 +1,102 @@
 # Presets y su lista: app/build/host/atek303_host app/tests/presets.txt app/build/host
 wait 600
-expect npresets 0
+# un FM-1 nuevo trae 8 de fábrica (1..8); SAVE abre su pantalla en el primer hueco libre, el 9
+expect npresets 8
+expect preset -1
 tap SAVE
 wait 60
-expect npresets 1
-expect preset 0
+expect save 1
+expect saveslot 8
+shot save.png
+tap SAVE
+wait 60
+expect save 0
+expect npresets 9
+expect preset 8
+# la pantalla se abre en el cargado; PRESETS lleva a otro hueco
 turn K1 20
 wait 30
-expect cutoff 55
+expect cutoff 28
 tap SAVE
 wait 60
-expect npresets 2
-expect preset 1
+expect saveslot 8
+turn PRESET 1
+wait 30
+expect saveslot 9
+tap SAVE
+wait 60
+expect npresets 10
+expect preset 9
+# cualquier otro botón cancela
+tap SAVE
+wait 30
+tap HOME
+wait 30
+expect save 0
+expect npresets 10
 # el primer giro de PRESETS abre la lista en el cargado; los siguientes mueven y cargan
 turn PRESET 1
 wait 60
 expect list 1
-expect listcur 1
+expect listcur 9
 turn PRESET -1
 wait 60
-expect preset 0
-expect cutoff 35
+expect preset 8
+expect cutoff 8
 shot list.png
 turn PRESET 1
 wait 60
-expect preset 1
-expect cutoff 55
-# SAVE mantenido: encima del cargado, sin crear otro
+expect preset 9
+expect cutoff 28
+# encima de uno usado pide OVERWRITE?: NO de entrada vuelve atrás; girar a YES y SAVE guarda
 turn K1 10
 wait 30
-press SAVE
-wait 1200
-release SAVE
+tap SAVE
+wait 30
+expect saveslot 9
+tap SAVE
+wait 30
+expect save 2
+shot overwrite.png
+tap SAVE
+wait 30
+expect save 1
+tap SAVE
+wait 30
+turn K1 1
+wait 30
+shot overwrite_yes.png
+tap SAVE
 wait 60
-expect npresets 2
+expect save 0
+expect npresets 10
+turn PRESET 1
+wait 60
 turn PRESET -1
 wait 60
 turn PRESET 1
 wait 60
-expect cutoff 65
+expect preset 9
+expect cutoff 38
 # borrar: ENV dos veces (la primera solo avisa)
 turn PRESET -1
 wait 60
-expect listcur 0
+expect listcur 8
 tap ENV
 wait 60
-expect npresets 2
+expect npresets 10
 tap ENV
 wait 60
-expect npresets 1
+expect npresets 9
 shot list_deleted.png
-# SAVE en el hueco vacío seleccionado
+# SAVE en la lista abre la pantalla en el hueco del cursor (vacío: guarda sin preguntar)
 tap SAVE
 wait 60
-expect npresets 2
-expect preset 0
+expect saveslot 8
+tap SAVE
+wait 60
+expect npresets 10
+expect preset 8
 # HOME cierra la lista; y se cierra sola a los 6 s
 tap HOME
 wait 30
@@ -66,4 +108,38 @@ wait 6500
 expect list 0
 reboot
 wait 600
-expect npresets 2
+expect npresets 10
+# los de fábrica: el 1 es ACID CLASSIC (cutoff 30, 125 BPM)
+turn PRESET 1
+wait 60
+turn PRESET -8
+wait 60
+expect listcur 0
+expect preset 0
+expect cutoff 30
+expect tempo 125
+# en marcha, el cambio espera al final del patrón, como en un 303
+tap HOME
+wait 30
+tap PLAY
+wait 300
+turn PRESET 1
+wait 60
+turn PRESET 1
+wait 30
+expect pending 1
+expect preset 0
+expect tempo 125
+shot next.png
+wait 2000
+expect pending -1
+expect preset 1
+expect tempo 130
+# parado, entra al momento (la lista sigue abierta)
+tap PLAY
+wait 60
+turn PRESET 1
+wait 30
+expect pending -1
+expect preset 2
+expect tempo 120

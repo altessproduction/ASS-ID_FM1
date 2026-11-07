@@ -17,7 +17,7 @@ int main() {
     AcidDualGenerator g;
     for (int set = 0; set < 6; set++)
     for (int scale = 0; scale < ACID_SCALES_LEN; scale++)
-    for (int steps = 16; steps >= 7; steps -= 9)
+    for (int steps : {64, 32, 16, 7})
     for (uint32_t k = 0; k < 40; k++) {
         uint32_t seed = k * 2654435761u + 12345u * (set + 1) + scale;
         AcidGenParams p; p.steps = steps; p.scale = scale;

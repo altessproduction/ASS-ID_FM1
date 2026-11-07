@@ -1,0 +1,103 @@
+# 64 pasos en 4 páginas de 16: app/build/host/atek303_host app/tests/steps64.txt app/build/host
+wait 600
+expect steps 16
+# página SEQ (la 4: HOME tres veces), K1 = STEPS hasta 64
+tap HOME
+wait 20
+tap HOME
+wait 20
+tap HOME
+wait 20
+expect page 3
+turn K1 48
+wait 30
+expect steps 64
+# en marcha, la tira enseña la página que suena: a 125 BPM el paso 20 llega a los 2,4 s
+tap PLAY
+wait 2500
+expect running 1
+expect stepgt15 1
+shot steps64_p2.png
+# una mutación de notas (LFO) toca solo la página a la vista
+tap PLAY
+wait 30
+expect running 0
+tap LFO
+wait 60
+expect samepage1 1
+expect mutations 2
+# el editor salta de página al pasar del paso 16
+tap EDIT
+wait 30
+expect cursor 0
+# SELECT recorre solo los 16 pasos de la página (vuelve al 1 tras el 16); K4 cambia de página
+turn SELECT 17
+wait 30
+expect cursor 1
+# K4 reparte las 4 páginas en todo su recorrido (unos 25 clics cada una): pocos clics no cambian de página
+turn K4 5
+wait 30
+expect cursor 1
+turn K4 10
+wait 30
+expect cursor 17
+shot steps64_editor.png
+turn K4 60
+wait 30
+expect cursor 49
+turn K4 20
+wait 30
+expect cursor 49
+turn K4 -30
+wait 30
+expect cursor 33
+turn K4 30
+wait 30
+expect cursor 49
+# OCT- mantenido + K4: STEPS (y la octava no cambia); con 40 pasos el cursor se recoloca en el último
+press OCT-
+wait 30
+turn K4 -24
+wait 30
+release OCT-
+wait 30
+expect steps 40
+expect cursor 39
+expect octave -1
+turn SELECT 1
+wait 30
+expect cursor 32
+# OCT- solo, en el editor: baja la octava al soltarlo
+tap OCT-
+wait 30
+expect octave -2
+tap OCT+
+wait 30
+press OCT-
+wait 30
+turn K4 24
+wait 30
+release OCT-
+wait 30
+expect steps 64
+tap EDIT
+wait 30
+# un preset de 64 pasos en el último hueco (objeto D) vuelve tras reiniciar
+tap SAVE
+wait 30
+expect saveslot 8
+turn PRESET -9
+wait 30
+expect saveslot 31
+tap SAVE
+wait 60
+expect preset 31
+reboot
+wait 600
+expect npresets 9
+turn PRESET 1
+wait 30
+turn PRESET -1
+wait 60
+expect preset 31
+expect steps 64

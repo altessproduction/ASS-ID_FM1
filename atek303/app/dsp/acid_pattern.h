@@ -1,11 +1,11 @@
 /* SPDX-License-Identifier: GPL-3.0-or-later
  * Copyright (C) 2026 Javier (Animatek)
  *
- * The ATEK303 SEQ's pattern generator, in C: a port of src/AcidPattern.hpp and the parts of
- * src/AcidGen.hpp it uses (../../VCV-Rack/ATEK303). Same algorithm, same streams, same numbers:
+ * The ATEK303 SEQ's pattern generator, in C: a port of src/AcidPattern.hpp, AcidCorpus.hpp and the parts of
+ * src/AcidGen.hpp it uses (../../VCV-Rack/UZZ-VCV-RACK, the ATEK303 SEQ of 64 steps). Same algorithm, same streams, same numbers:
  * a seed gives the same pattern here as in VCV Rack (tests/pattern_*.c* check it bit for bit).
  *
- * The pattern (v4) lives in two layers:
+ * The pattern (v4 layout; v5 of the generator, UZZ-VCV-RACK's: tuned on a corpus of acid lines, 64 steps) lives in two layers:
  *   - time:  REST, NOTE or TIE per step (a tie holds the previous note, no new attack);
  *   - pitch: one event per NOTE, in order: scale degree, octave (-2..+2), accent, slide out.
  * acid_render() turns it into the per-step grid the sequencer plays. Degrees, not semitones:
@@ -13,7 +13,7 @@
 #pragma once
 #include <stdint.h>
 
-#define ACID_MAX_STEPS 16
+#define ACID_MAX_STEPS 64                /* as the ATEK303 SEQ in VCV Rack: 4 pages of 16 */
 #define ACID_SCALES_LEN 8
 
 typedef struct {
@@ -27,7 +27,7 @@ extern const char *const ACID_NOTE_NAMES[12];
 
 /* the character knobs, all 0..1 except steps and scale */
 typedef struct {
-    int steps;                        /* 1..16 */
+    int steps;                        /* 1..64 */
     int scale;                        /* index in ACID_SCALES */
     float density, accent, slide, range, tie;
 } acid_params_t;
@@ -72,3 +72,6 @@ void acid_import(acid_pattern_t *pat, const acid_grid_t *in, int length, uint32_
  * module); *last gets the last mutation index used. 0 = nothing changed (pattern untouched). */
 int acid_mutate_burst(acid_pattern_t *pat, int layer, uint32_t first_index, int operations, int scale,
                       uint32_t *last);
+/* the same within the steps [lo, hi) (a page; clipped to the pattern's length) */
+int acid_mutate_burst_range(acid_pattern_t *pat, int layer, uint32_t first_index, int operations, int scale,
+                            uint32_t *last, int lo, int hi);

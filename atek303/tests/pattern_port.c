@@ -14,10 +14,11 @@ int main(void) {
     static const float SETS[6][5] = {
         {0.65f,0.6f,0.5f,0.45f,0.4f}, {0.05f,0.f,0.f,0.f,0.f}, {1.f,1.f,1.f,1.f,1.f},
         {0.3f,0.8f,0.2f,0.9f,0.4f}, {0.9f,0.3f,0.9f,0.2f,0.7f}, {0.5f,0.5f,0.5f,0.5f,0.1f}};
-    int set, scale, steps, m, i; uint32_t k;
+    static const int STEPS[4] = {64, 32, 16, 7};
+    int set, scale, steps, si, m, i; uint32_t k;
     for (set = 0; set < 6; set++)
     for (scale = 0; scale < ACID_SCALES_LEN; scale++)
-    for (steps = 16; steps >= 7; steps -= 9)
+    for (si = 0; si < 4 && (steps = STEPS[si]); si++)
     for (k = 0; k < 40; k++) {
         uint32_t seed = k * 2654435761u + 12345u * (uint32_t)(set + 1) + (uint32_t)scale, cursor = 0;
         acid_params_t p; acid_pattern_t pat; acid_grid_t g; int c;
