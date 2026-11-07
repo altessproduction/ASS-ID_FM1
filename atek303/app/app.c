@@ -56,20 +56,50 @@
  * the screens are slate, the values in the displays' blue, the selection in the logo's blue */
 #undef C_BLACK
 #define C_BLACK RGB(0x16, 0x18, 0x1C)          /* the panels' slate */
-#define C_LOGO RGB(0x2C, 0x7F, 0xFF)           /* the logo's blue: bars, the page selected, the cursor */
-#define AK_NOTE RGB(0x2C, 0x7F, 0xFF)          /* the acid editor's colours */
-#define AK_TIE RGB(0x1E, 0x4E, 0x9C)
-#define AK_ACCENT RGB(0xCF, 0xE6, 0xFF)
-#define AK_SLIDE RGB(0x00, 0xC2, 0xFF)
-#define AK_OCTAVE RGB(0x7F, 0x9C, 0xC4)
 #define AK_AMBER RGB(0xFD, 0x9A, 0x00)          /* the Animatek amber: what waits (NEXT), OVERWRITE */
-static void animatek_palette(void)              /* over fm1-base's (gfx.c pal[]: C_LINE, C_DIM, C_GRAY, C_AMB, C_HI) */
+/* the colour (OPTIONS > COLOR): Animatek's blues, or one of fm1-base's themes (X0X's: GREEN, AMBER, CYAN, RED, MONO)
+ * with the acid editor's colours drawn from its hue */
+typedef struct {
+    const char *name;
+    uint16_t line, dim, gray, sec, hi;         /* fm1-base's five steps (gfx.c pal[]) */
+    uint16_t logo, tie, accent, slide;         /* the logo's colour (bars, cursor, notes), and the editor's */
+} theme_t;
+#define FM1_NEUTRALS RGB(34, 34, 40), RGB(74, 74, 82), RGB(150, 150, 158)
+static const theme_t THEMES[] = {
+    {"ANIMATEK", RGB(0x2C, 0x2C, 0x2C), RGB(0x5A, 0x5A, 0x5A), RGB(0x9A, 0xA2, 0xB5), RGB(0x7F, 0x9C, 0xC4),
+     RGB(0x5D, 0xB7, 0xFF), RGB(0x2C, 0x7F, 0xFF), RGB(0x1E, 0x4E, 0x9C), RGB(0xCF, 0xE6, 0xFF), RGB(0x00, 0xC2, 0xFF)},
+    {"GREEN", FM1_NEUTRALS, RGB(60, 154, 90), RGB(150, 255, 175), RGB(80, 220, 120), RGB(42, 110, 64),
+     RGB(224, 255, 232), RGB(150, 255, 175)},
+    {"AMBER", FM1_NEUTRALS, RGB(176, 112, 48), RGB(255, 184, 70), RGB(232, 136, 30), RGB(122, 74, 20),
+     RGB(255, 240, 208), RGB(255, 184, 70)},
+    {"CYAN", FM1_NEUTRALS, RGB(94, 156, 184), RGB(150, 225, 255), RGB(60, 180, 235), RGB(30, 94, 124),
+     RGB(224, 246, 255), RGB(150, 225, 255)},
+    {"RED", FM1_NEUTRALS, RGB(176, 90, 80), RGB(255, 132, 112), RGB(232, 76, 60), RGB(122, 42, 32),
+     RGB(255, 224, 218), RGB(255, 132, 112)},
+    {"MONO", FM1_NEUTRALS, RGB(150, 150, 160), RGB(236, 236, 240), RGB(196, 196, 202), RGB(90, 90, 96),
+     RGB(255, 255, 255), RGB(236, 236, 240)},
+};
+#define NTHEMES (int)(sizeof THEMES / sizeof THEMES[0])
+static uint16_t c_logo, c_tie, c_accent, c_slide, c_octave;
+#define C_LOGO c_logo                          /* bars, the page selected, the cursor */
+#define AK_NOTE c_logo                         /* the acid editor's colours */
+#define AK_TIE c_tie
+#define AK_ACCENT c_accent
+#define AK_SLIDE c_slide
+#define AK_OCTAVE c_octave
+static void theme_apply(int i)                 /* over fm1-base's palette (gfx.c pal[]: C_LINE, C_DIM, C_GRAY, C_AMB, C_HI) */
 {
-    pal[0] = RGB(0x2C, 0x2C, 0x2C);            /* rules, empty bars */
-    pal[1] = RGB(0x5A, 0x5A, 0x5A);            /* inactive */
-    pal[2] = RGB(0x9A, 0xA2, 0xB5);            /* labels */
-    pal[3] = RGB(0x7F, 0x9C, 0xC4);            /* secondary */
-    pal[4] = RGB(0x5D, 0xB7, 0xFF);            /* values: the displays' blue */
+    const theme_t *t = &THEMES[i >= 0 && i < NTHEMES ? i : 0];
+    pal[0] = t->line;                          /* rules, empty bars */
+    pal[1] = t->dim;                           /* inactive */
+    pal[2] = t->gray;                          /* labels */
+    pal[3] = t->sec;                           /* secondary */
+    pal[4] = t->hi;                            /* values */
+    c_logo = t->logo;
+    c_tie = t->tie;
+    c_accent = t->accent;
+    c_slide = t->slide;
+    c_octave = t->sec;
 }
 
 #define SET_MAGIC 0x41543634u                  /* "AT64" (64 steps): another magic loads the defaults */
@@ -114,6 +144,51 @@ static preset_t presets[NPRESETS];
 typedef char preset_fits[sizeof(preset_t) * PRESETS_PER_OBJ <= PLAT_STORE_MAX ? 1 : -1];
 static int8_t cur_preset = -1;                 /* the one loaded (or saved) last, -1 none */
 
+/* the OPTIONS menu (HOME held): the unit's own choices, apart from the settings so no preset carries them (OBJ_OPTIONS,
+ * saved as the menu closes). Each an index into its choices */
+#define OPT_MAGIC 0x4F505431u                  /* "OPT1" */
+enum { OP_COLOR, OP_MIDI_IN, OP_MIDI_OUT, OP_SEQ_OUT, OP_CLOCK_OUT, OP_FINE, OP_N = OP_FINE + AT_NOPTS };
+typedef struct {
+    uint32_t magic;
+    uint8_t v[OP_N];
+} options_t;
+static options_t opt;
+static void options_defaults(void)
+{
+    int i;
+    opt.magic = OPT_MAGIC;
+    opt.v[OP_COLOR] = 0;                       /* ANIMATEK */
+    opt.v[OP_MIDI_IN] = 0;                     /* every channel */
+    opt.v[OP_MIDI_OUT] = 0;                    /* channel 1 */
+    opt.v[OP_SEQ_OUT] = 1;                     /* the sequencer's notes out */
+    opt.v[OP_CLOCK_OUT] = 0;
+    for (i = 0; i < AT_NOPTS; i++)
+        opt.v[OP_FINE + i] = AT_OPT_DEFAULT[i];
+}
+static int opt_count(int i)                    /* how many choices item i has */
+{
+    static const uint8_t N[OP_FINE] = {0, 17, 16, 2, 2};
+    return i == OP_COLOR ? NTHEMES : i < OP_FINE ? N[i] : AT_OPT_N[i - OP_FINE];
+}
+static void options_load(void)
+{
+    int i, ok = plat_store_load(OBJ_OPTIONS, &opt, sizeof opt) == (int)sizeof opt && opt.magic == OPT_MAGIC;
+    for (i = 0; ok && i < OP_N; i++)
+        ok = opt.v[i] < opt_count(i);
+    if (!ok)
+        options_defaults();
+}
+static uint32_t midi_out_ch(void) { return opt.v[OP_MIDI_OUT] & 15u; }
+static void midi_note_out(int note, uint32_t vel)   /* a note to USB on the OPTIONS channel (vel 0: off); main loop or render */
+{
+    uint32_t ch = midi_out_ch();
+    if (vel)
+        plat_midi_send(0x09u | (0x90u | ch) << 8 | (uint32_t)note << 16 | vel << 24, TO_USB);
+    else
+        plat_midi_send(0x08u | (0x80u | ch) << 8 | (uint32_t)note << 16, TO_USB);
+}
+static void midi_rt_out(uint32_t st) { plat_midi_send(0x0Fu | st << 8, TO_USB); }   /* clock, start, stop */
+
 /* random acid names: two words, at most 14 characters */
 static const char *const NAME_A[] = {"ACID", "RUBBER", "TOXIC", "HYPER", "SQUELCH", "LASER", "MELTED", "ELECTRIC",
                                      "BUBBLE", "WOBBLY", "SILVER", "CHROME", "PLASTIC", "LIQUID", "NEON", "RAW",
@@ -147,7 +222,7 @@ static at_voice_t voice;
 
 /* ---------------------------------------------- main loop -> render queue --- */
 enum { EV_NOTE_ON, EV_NOTE_OFF, EV_PARAM, EV_PANIC, EV_PLAY, EV_GENERATE, EV_MUTATE, EV_UNDO, EV_REGROW,
-       EV_ROOT, EV_FX, EV_EDIT, EV_LOAD, EV_APPLY };
+       EV_ROOT, EV_FX, EV_EDIT, EV_LOAD, EV_APPLY, EV_OPTION };
 /* the editor's operations (EV_EDIT: a = step, b = op | value << 8) */
 enum { ED_NOTE, ED_GATE, ED_ACC, ED_SLIDE, ED_OCT, ED_SEMI };
 #define QN 64u
@@ -225,6 +300,8 @@ static struct {
     uint32_t now;                              /* samples since boot (render) */
     float step_time, period;                   /* seconds */
     uint8_t was_gate;
+    uint8_t out_note;                          /* the sequencer's note sounding on MIDI out, + 1 (0: none) */
+    uint8_t out_ticks;                         /* MIDI clock out: the ticks sent into this step (6 a step) */
 } sq;
 static volatile uint32_t midi_count;
 
@@ -350,9 +427,18 @@ static void seq_play(int on)
         sq.step_time = 0.0f;
         sq.started = 1;
         sq.ticks = 0;
+        sq.out_ticks = 0;
+        if (opt.v[OP_CLOCK_OUT] && !sq.ext)
+            midi_rt_out(0xFAu);                /* start: the clock follows from the first step */
     }
+    if (!on && sq.running && opt.v[OP_CLOCK_OUT] && !sq.ext)
+        midi_rt_out(0xFCu);
     sq.running = (uint8_t)on;
     if (!on) {
+        if (sq.out_note) {                     /* the note out ends */
+            midi_note_out(sq.out_note - 1, 0);
+            sq.out_note = 0;
+        }
         if (pend_gen) {                        /* stopped: what waited, now */
             pend_gen = 0;
             seq_generate_now();
@@ -375,6 +461,7 @@ static void seq_next_step(void)
     int len = seq_len();
     sq.step = (uint8_t)((sq.step + 1) % len);
     sq.step_time = 0.0f;
+    sq.out_ticks = 0;
     if (sq.step % 16 == 0 && pend_gen) {       /* a bar ended: the new pattern from here */
         pend_gen = 0;
         seq_generate_now();
@@ -408,6 +495,16 @@ static void seq_apply(void)
     if (note > 127)
         note = 127;
     at_gate(&voice, gate, note, accent, slide);
+    if ((uint32_t)(gate ? note + 1 : 0) != sq.out_note) {   /* MIDI out: a new note before the last one's end (legato) */
+        uint8_t last = sq.out_note;
+        sq.out_note = 0;
+        if (gate && opt.v[OP_SEQ_OUT]) {
+            midi_note_out(note, accent ? 127u : 80u);
+            sq.out_note = (uint8_t)(note + 1);
+        }
+        if (last)
+            midi_note_out(last - 1, 0);
+    }
     if (gate) {
         ui_note = note;
         ui_accent = (uint8_t)accent;
@@ -427,6 +524,11 @@ static void seq_chunk(uint32_t n)              /* the internal clock, n samples 
             seq_next_step();
     }
     seq_apply();
+    if (!sq.ext && opt.v[OP_CLOCK_OUT])         /* MIDI clock out, 24 a quarter: tick k of the step at k/6 of it */
+        while (sq.out_ticks < 6u && sq.step_time >= (float)sq.out_ticks * sq.period * (1.0f / 6.0f)) {
+            midi_rt_out(0xF8u);
+            sq.out_ticks++;
+        }
     sq.step_time += dt;
 }
 static void seq_clock(uint32_t st)             /* render: MIDI realtime messages */
@@ -435,7 +537,8 @@ static void seq_clock(uint32_t st)             /* render: MIDI realtime messages
         sq.ext = 1;
         sq.running = 0;
         seq_play(1);
-        sq.ticks = 0;
+        sq.ticks = 255;                        /* the clock after a start is the first step's own: the next
+                                                * step comes on the 7th, as a DAW counts (it wraps to 0 here) */
         sq.ext_last = sq.now;
     } else if (st == 0xFBu) {                  /* continue */
         sq.ext = 1;
@@ -545,6 +648,8 @@ static void midi_in(void)                      /* render: the packets that came 
                 seq_clock(st);
             continue;
         }
+        if (opt.v[OP_MIDI_IN] && st < 0xF0u && (st & 15u) != opt.v[OP_MIDI_IN] - 1u)
+            continue;                          /* OPTIONS: another channel */
         midi_count++;
         if ((st & 0xF0u) == 0x90u && d2) {
             if (sq.running)
@@ -570,6 +675,36 @@ static void midi_in(void)                      /* render: the packets that came 
 
 
 static float mono[APP_BLOCK], fxl[APP_BLOCK], fxr[APP_BLOCK];
+
+/* the output stage, before MASTER: +6 dB, a limiter (both sides together: 1 ms attack, 80 ms release, to 0.8) and a
+ * soft clip from 0.8 for what the attack lets through, so the peaks are rounded to just under full scale instead of
+ * cut. A 303 is one voice with resonant peaks, 12-18 dB over its average: without it the level is low and the loud
+ * presets clip hard */
+#define LIM_MAKEUP 2.0f
+#define LIM_THR 0.8f
+#define LIM_ATT 0.0224f                        /* 1 - exp(-1 / (1 ms at 44.1 kHz)) */
+#define LIM_REL 0.99972f                       /* exp(-1 / (80 ms at 44.1 kHz)) */
+static float lim_env;
+static float soft_clip(float x)                /* linear to LIM_THR, then a tanh knee up to 1.0 */
+{
+    float a = fm_fabsf(x);
+    if (a <= LIM_THR)
+        return x;
+    a = LIM_THR + (1.0f - LIM_THR) * fm_tanhf((a - LIM_THR) * (1.0f / (1.0f - LIM_THR)));
+    return x < 0.0f ? -a : a;
+}
+static void limit(float *l, float *r)
+{
+    float p = fm_maxf(fm_fabsf(*l *= LIM_MAKEUP), fm_fabsf(*r *= LIM_MAKEUP)), g;
+    if (p > lim_env)
+        lim_env += (p - lim_env) * LIM_ATT;
+    else
+        lim_env = p + (lim_env - p) * LIM_REL;
+    g = lim_env > LIM_THR ? LIM_THR / lim_env : 1.0f;
+    *l = soft_clip(*l * g);
+    *r = soft_clip(*r * g);
+}
+
 void app_render(int32_t *lr, uint32_t n, uint32_t master_q12)
 {
     uint32_t i, off;
@@ -618,7 +753,9 @@ void app_render(int32_t *lr, uint32_t n, uint32_t master_q12)
             acid_sanitize(&set.pattern, set.scale);
             sq.has_undo = 0;
             seq_render_grid();
-        } else if (kind == EV_LOAD && a < NPRESETS && presets[a].used) {
+        } else if (kind == EV_OPTION)            /* OPTIONS: a fine-tuning choice into the voice */
+            at_option(&voice, (int)a, (int)b);
+        else if (kind == EV_LOAD && a < NPRESETS && presets[a].used) {
             if (sq.running && sq.started)
                 pend_preset = (int8_t)a;       /* on at the end of the pattern */
             else
@@ -639,6 +776,7 @@ void app_render(int32_t *lr, uint32_t n, uint32_t master_q12)
     fx_process(mono, fxl, fxr, n);
     for (i = 0; i < n; i++) {
         gain_now += (gain - gain_now) * 0.004f;
+        limit(&fxl[i], &fxr[i]);
         lr[2 * i] = (int32_t)fm_clampf(fxl[i] * gain_now, -8388000.0f, 8388000.0f);
         lr[2 * i + 1] = (int32_t)fm_clampf(fxr[i] * gain_now, -8388000.0f, 8388000.0f);
     }
@@ -705,8 +843,9 @@ static void settings_defaults(void)
     set.fx[FX_REV_MIX] = 0.0f;   /* "ATK3": the same first pattern on every FM-1 */
 }
 
-#if __has_include("factory_presets.h")
-#include "factory_presets.h"                   /* FACTORY_BANKS: Javier's presets, from a backup */
+#if __has_include("factory_presets.h") && !(defined(PLAT_HOST) && !defined(PLAT_WEB))
+#include "factory_presets.h"                   /* FACTORY_BANKS: Javier's presets, from a backup (the FM-1 and the web
+                                                * emulator; the host simulator keeps the table below: its tests count on it) */
 #endif
 /* the factory presets: what an empty bank starts with (slots 1..8). The pattern grows from the seed with the
  * preset's own pattern knobs, so it is the same on every FM-1; delete one and it stays deleted */
@@ -817,7 +956,11 @@ static void store_load(void)
     if (!ok) {
         settings_defaults();
 #ifdef FACTORY_BANKS
-        if (sizeof FACTORY_SETTINGS == sizeof set) {   /* the state Javier's FM-1 was in */
+        if (presets[0].used) {                 /* a fresh FM-1 starts on preset 01 (its name in the header) */
+            set = presets[0].s;
+            set.page = 0;
+            cur_preset = 0;
+        } else if (sizeof FACTORY_SETTINGS == sizeof set) {   /* else the state Javier's FM-1 was in */
             settings_t t;
             bytes_copy(&t, FACTORY_SETTINGS, sizeof t);
             if (settings_ok(&t))
@@ -831,7 +974,9 @@ void app_init(void)
 {
     int i;
     at_init(&voice, SR);
-    voice.auto_legato = 1;
+    options_load();
+    for (i = 0; i < AT_NOPTS; i++)
+        at_option(&voice, i, opt.v[OP_FINE + i]);
     store_load();
     acid_sanitize(&set.pattern, set.scale);
     for (i = 0; i < AT_NPARAMS; i++)
@@ -885,7 +1030,10 @@ static struct {
     uint8_t redraw;
     uint8_t loaded_seen;
     uint8_t oct_hold, oct_used;
-    float page_pos;                            /* K4 in the editor: where the knob is over the pages, 0..1 */                /* the editor: OCT- held, and K4 turned while it was (STEPS) */                       /* the render's loaded_n, as the screen last saw it */
+    float page_pos;                            /* K4 in the editor: where the knob is over the pages, 0..1 */
+    uint8_t opts, opt_cur, opt_dirty;          /* the OPTIONS menu: up, its item, changed (saved as it closes) */
+    uint32_t home_t;                           /* HOME went down then (| 1): released soon, the pages; held, OPTIONS */
+    uint8_t home_used;                         /* this press of HOME did its thing already */                /* the editor: OCT- held, and K4 turned while it was (STEPS) */                       /* the render's loaded_n, as the screen last saw it */
 } ui;
 
 static void text_cat(char *d, const char *s)
@@ -1213,6 +1361,66 @@ static void edit_page(int32_t d)
     c = pg * 16 + ui.cursor % 16;
     ui.cursor = (uint8_t)(c < len ? c : len - 1);
 }
+/* ------------------------------------------------------------ OPTIONS --- */
+static const char *const OPT_LABEL[OP_N] = {"COLOR", "MIDI IN CH", "MIDI OUT CH", "SEQ NOTES OUT", "CLOCK OUT",
+    "PULSE WIDTH", "SQUARE DROOP", "SAW RESET", "SAW DROOP", "FILTER DRIVE", "SLIDE TIME", "AUTO LEGATO",
+    "OTA SATURATION", "OUT SATURATION", "ANALOG DRIFT", "UNIT"};
+static const char *const OPT_SECTION[OP_N] = {"DISPLAY", "MIDI", 0, 0, 0, "FINE TUNING", 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+static void opt_value_text(int i, char *t)
+{
+    static const char *const FINE[AT_NOPTS][5] = {
+        {"44 %", "47 %", "50 %", "53 %", "56 %"}, {"NONE", "8 HZ", "15 HZ", "30 HZ", "60 HZ"},
+        {"1 US", "3 US", "8 US", "20 US"}, {"0.7 HZ", "3 HZ", "8 HZ", "15 HZ"}, {"0 DB", "+6 DB", "+12 DB"},
+        {"60 MS", "120 MS", "220 MS"}, {"OFF", "ON"}, {"NONE", "SOFT", "HARD"}, {"NONE", "SOFT", "HARD"},
+        {"NONE", "SUBTLE", "MARKED", "HEAVY"}, {"1", "2", "3", "4"}};
+    int v = opt.v[i];
+    t[0] = 0;
+    if (i == OP_COLOR)
+        text_cat(t, THEMES[v].name);
+    else if (i == OP_MIDI_IN && v == 0)
+        text_cat(t, "ALL");
+    else if (i == OP_MIDI_IN || i == OP_MIDI_OUT)
+        int_text(i == OP_MIDI_IN ? v : v + 1, t);
+    else if (i < OP_FINE)
+        text_cat(t, v ? "ON" : "OFF");
+    else
+        text_cat(t, FINE[i - OP_FINE][v]);
+}
+static void opt_change(int i, int32_t e)       /* a step through item i's choices (no wrap) */
+{
+    int32_t v = opt.v[i] + (e > 0 ? 1 : -1), n = opt_count(i);
+    if (v < 0 || v >= n)
+        return;
+    opt.v[i] = (uint8_t)v;
+    ui.opt_dirty = 1;
+    if (i == OP_COLOR) {
+        theme_apply(v);
+        lcd_fill(0, 0, 240, 240, C_BLACK);
+    } else if (i >= OP_FINE)
+        post(EV_OPTION, (uint32_t)(i - OP_FINE), (uint32_t)v);
+}
+static void opt_close(void)
+{
+    ui.opts = 0;
+    if (ui.opt_dirty && !backup_hold) {
+        ui.opt_dirty = 0;
+        if (plat_store_save(OBJ_OPTIONS, &opt, sizeof opt) == 0)
+            app_say("OPTIONS", "SAVED");
+        else
+            app_say("OPTIONS", "NOT SAVED");
+    }
+    ui.redraw = 1;
+}
+static void home_pages(void)                   /* HOME: the four sound pages in turn (VCF, VOICE, PATT, SEQ); from the
+                                                  editor, the list or an effect page, straight to VCF */
+{
+    set.page = (uint8_t)(ui.edit || ui.list || set.page >= 3u ? 0u : set.page + 1u);
+    ui.edit = 0;
+    ui.list = 0;
+    set_dirty = 1;
+    ui.redraw = 1;
+}
+
 static void input(void)
 {
     uint32_t keys, btn = plat_buttons(), k;
@@ -1244,11 +1452,11 @@ static void input(void)
                 app_say("ROOT", ACID_NOTE_NAMES[set.root]);
             } else
                 post(EV_NOTE_ON, (uint32_t)note, v);
-            plat_midi_send(0x09u | 0x90u << 8 | (uint32_t)note << 16 | v << 24, TO_USB);
+            midi_note_out(note, v ? v : 1u);
         } else if (!(keys & bit) && (ui.keys & bit)) {
             if (!sq.running)
                 post(EV_NOTE_OFF, (uint32_t)note, 0);   /* (in the editor too: the note heard ends) */
-            plat_midi_send(0x08u | 0x80u << 8 | (uint32_t)note << 16, TO_USB);
+            midi_note_out(note, 0);
         }
     }
     for (k = 0; k < NB; k++) {
@@ -1273,6 +1481,14 @@ static void input(void)
                 app_say("SAVE", "CANCELLED");
             }
             ui.redraw = 1;
+            continue;
+        }
+        if (ui.opts) {                         /* OPTIONS: HOME (or any button) closes it, saved */
+            opt_close();
+            if (k == B_HOME) {
+                ui.home_t = plat_ms() | 1u;
+                ui.home_used = 1;              /* (its release does not turn the page) */
+            }
             continue;
         }
         if (ui.list && k == B_ENV) {           /* delete: twice, within two seconds */
@@ -1318,13 +1534,9 @@ static void input(void)
             post(EV_MUTATE, k == B_ENV ? ACID_MUT_TIME : k == B_LFO ? ACID_MUT_PITCH : ACID_MUT_ARTICULATION,
                  (uint32_t)view_base());       /* the page on view */
             set_dirty = 1;
-        } else if (k == B_HOME) {              /* the four sound pages in turn (VCF, VOICE, PATT, SEQ); from the editor,
-                                                  the list or an effect page, straight to VCF */
-            set.page = (uint8_t)(ui.edit || ui.list || set.page >= 3u ? 0u : set.page + 1u);
-            ui.edit = 0;
-            ui.list = 0;
-            set_dirty = 1;
-            ui.redraw = 1;
+        } else if (k == B_HOME) {              /* on release: the pages; held 1.5 s: OPTIONS */
+            ui.home_t = plat_ms() | 1u;
+            ui.home_used = 0;
         } else if (k == B_REC)
             post(EV_UNDO, 0, 0);
         else if (k == B_GLO) {
@@ -1334,6 +1546,21 @@ static void input(void)
         } else if (k == B_SAVE) {
             save_open();
             ui.redraw = 1;
+        }
+    }
+    if (ui.home_t) {
+        if (btn >> B_HOME & 1u) {
+            if (!ui.home_used && plat_ms() - ui.home_t >= 1500u) {
+                ui.home_used = 1;              /* held: OPTIONS */
+                ui.opts = 1;
+                ui.edit = ui.list = 0;
+                ui.save = 0;
+                ui.redraw = 1;
+            }
+        } else {
+            if (!ui.home_used)
+                home_pages();
+            ui.home_t = 0;
         }
     }
     if (ui.oct_hold && !(btn >> B_OCTDN & 1u)) {   /* OCT- let go in the editor: the octave, if K4 did not turn */
@@ -1353,6 +1580,16 @@ static void input(void)
                 ui.save_named = 1;
                 save_new_name();
             }
+            ui.redraw = 1;
+            continue;
+        }
+        if (ui.opts) {                         /* OPTIONS: SELECT the item, any other its value */
+            if (k == EN_SELECT) {
+                int32_t c = ui.opt_cur + (e > 0 ? 1 : -1);
+                if (c >= 0 && c < OP_N)
+                    ui.opt_cur = (uint8_t)c;
+            } else
+                opt_change(ui.opt_cur, e);
             ui.redraw = 1;
             continue;
         }
@@ -1618,6 +1855,40 @@ static void draw_list(void)
     }
 }
 
+/* OPTIONS: the items, 8 on view, the section's name over the first of each */
+static void draw_options(void)
+{
+    int32_t top = ui.opt_cur - 3, r, band;
+    char t[24];
+    if (top < 0)
+        top = 0;
+    if (top > OP_N - 8)
+        top = OP_N - 8;
+    for (band = 0; band < 2; band++) {
+        cv_begin(240, band ? 124 : 84, C_BLACK);
+        for (r = band ? 4 : 0; r < (band ? 8 : 4); r++) {
+            int32_t i = top + r, y = (r - (band ? 4 : 0)) * 20 + (band ? 0 : 4);
+            int cur = i == ui.opt_cur;
+            if (cur)
+                cv_rect(4, y, 232, 19, RGB(0x22, 0x25, 0x2B));
+            if (OPT_SECTION[i])
+                cv_rect(4, y, 232, 1, C_LINE);
+            cv_text(10, y + 4, &FONT_XS, OPT_LABEL[i], cur ? C_WHITE : C_GRAY);
+            opt_value_text(i, t);
+            cv_text(230 - text_w(&FONT_XS, t), y + 4, &FONT_XS, t, cur ? C_HI : C_AMB);
+        }
+        if (band) {
+            const char *sec = 0;
+            int32_t i;
+            for (i = ui.opt_cur; i >= 0 && !sec; i--)
+                sec = OPT_SECTION[i];
+            cv_text(4, 84, &FONT_T, sec, C_LOGO);
+            cv_text(4, 96, &FONT_T, "SEL ITEM  K1-K4 VALUE  HOME CLOSE", C_DIM);
+        }
+        cv_blit(0, band ? 116 : 32);
+    }
+}
+
 /* the SAVE screen (as on the FMini-1): slot, OVERWRITE or EMPTY, the name; then OVERWRITE? NO / YES */
 static void draw_save(void)
 {
@@ -1673,17 +1944,34 @@ static void draw_save(void)
     }
 }
 
+/* the battery, top right of the header: 3 bars (amber when empty), blue when USB powers the FM-1, none when not
+ * read yet (or the web emulator's). Returns where the header's right-aligned text ends, left of it */
+static int32_t draw_battery(int b)
+{
+    int32_t i;
+    uint16_t c = b == 4 ? C_LOGO : b == 0 ? AK_AMBER : C_HI;
+    if (b < 0)
+        return 232;
+    cv_rect(213, 10, 20, 12, c);
+    cv_rect(214, 11, 18, 10, C_BLACK);
+    cv_rect(233, 13, 2, 6, c);
+    for (i = 0; i < (b == 4 ? 3 : b); i++)
+        cv_rect(216 + 5 * i, 13, 4, 6, c);       /* 2 px of black around them, as above and below */
+    return 206;
+}
+
 static void draw(void)
 {
     char t[24];
-    int32_t note = ui_note, i;
+    int32_t note = ui_note, i, right;
     uint32_t now = plat_ms();
     cv_begin(240, 32, C_BLACK);
+    right = draw_battery(plat_battery());
     if (now < ui.msg_until && !ui.save) {
         int32_t x = cv_text(10, 6, &FONT_B, ui.msg[0], C_WHITE);
         cv_text(x + 8, 6, &FONT_B, ui.msg[1], C_HI);
     } else {
-        int32_t x = cv_text(10, 6, &FONT_B, ui.save ? "SAVE" : ui.list ? "PRESETS" : ui.edit ? "EDIT" : cur_preset >= 0 ? presets[cur_preset].name : APP_NAME, C_WHITE);
+        int32_t x = cv_text(10, 6, &FONT_B, ui.opts ? "OPTIONS" : ui.save ? "SAVE" : ui.list ? "PRESETS" : ui.edit ? "EDIT" : cur_preset >= 0 ? presets[cur_preset].name : APP_NAME, C_WHITE);
         if (ui.edit) {                         /* the step under the cursor: number, note, accent, slide */
             const acid_grid_t *gg = &sq.grid;
             int st = ui.cursor;
@@ -1714,16 +2002,20 @@ static void draw(void)
                     text_cat(t, " SLD");
             } else
                 text_cat(t, "REST");
-            cv_text(232 - text_w(&FONT_XS, t), 8, &FONT_XS, t, C_HI);
+            cv_text(right - text_w(&FONT_XS, t), 8, &FONT_XS, t, C_HI);
             note = -1;
         } else
             cv_text(x + 8, 8, &FONT_XS, pend_preset >= 0 || pend_gen ? "NEXT" : sq.running ? "PLAY" : "", pend_preset >= 0 || pend_gen ? AK_AMBER : C_HI);
         if (note >= 0) {
             note_name(note, t);
-            cv_text(230 - text_w(&FONT_B, t), 6, &FONT_B, t, C_HI);
+            cv_text(right - 2 - text_w(&FONT_B, t), 6, &FONT_B, t, C_HI);
         }
     }
     cv_blit(0, 0);
+    if (ui.opts) {
+        draw_options();
+        return;
+    }
     if (ui.save) {
         draw_save();
         return;
@@ -1802,7 +2094,7 @@ void app_splash(void)
 
 void app_ui_init(void)
 {
-    animatek_palette();
+    theme_apply(opt.v[OP_COLOR]);
     touch_on(1);
     lcd_fill(0, 0, 240, 240, C_BLACK);
     ui.redraw = 1;
@@ -1813,9 +2105,14 @@ void app_frame(void)
     static int32_t last_note = -2;
     static uint8_t last_acc, last_slide, last_step = 255, last_run;
     static uint32_t last_seed, last_count, last_grid;
+    static int last_batt = -2;
     uint32_t now = plat_ms();
     input();
     ann_tick(now);
+    if (plat_battery() != last_batt) {         /* the battery's bars (header) */
+        last_batt = plat_battery();
+        ui.redraw = 1;
+    }
     if (ui_note != last_note || ui_accent != last_acc || ui_slide != last_slide || sq.step != last_step
         || sq.running != last_run || set.pattern.seed != last_seed || set.mutation_counter != last_count || grid_version != last_grid) {
         last_grid = grid_version;
@@ -1913,6 +2210,16 @@ int app_expect(const char *what, int *got)
         *got = cur_preset;
     else if (!strcmp(what, "save"))
         *got = ui.save;
+    else if (!strcmp(what, "opts"))
+        *got = ui.opts;
+    else if (!strcmp(what, "optcur"))
+        *got = ui.opt_cur;
+    else if (!strcmp(what, "optval"))          /* the value of the item under the cursor */
+        *got = opt.v[ui.opt_cur];
+    else if (!strcmp(what, "color"))
+        *got = opt.v[OP_COLOR];
+    else if (!strcmp(what, "drift"))
+        *got = voice.drift;
     else if (!strcmp(what, "saveslot"))
         *got = ui.save_slot;
     else if (!strcmp(what, "steps"))

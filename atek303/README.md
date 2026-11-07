@@ -148,6 +148,28 @@ Se probaron parameter locks (REC grababa por paso y había una vista de carriles
 convencieron y se quitaron el mismo día. El código, por si se retoma, quedó fuera del repo en el scratchpad de la
 sesión; con la descripción del changelog se puede rehacer.
 
+## Opciones (HOME mantenido)
+
+**HOME mantenido 1,5 s** abre **OPTIONS**; HOME (o cualquier botón) la cierra y la guarda. HOME corto sigue
+pasando de página. SELECT elige la línea y K1–K4 cambian el valor. Las opciones son del aparato, no de los presets:
+van en su propio objeto (`OBJ_OPTIONS`, 0xDE000), no se guardan con un preset ni entran en la copia por USB.
+
+- **DISPLAY · COLOR:** ANIMATEK (los azules de VCV) o los temas de fm1-base: GREEN, AMBER, CYAN, RED y MONO. Los
+  colores del editor (nota, tie, acento, slide) salen del tono del tema.
+- **MIDI:** canal de entrada (ALL o 1–16: notas y CC de otro canal se ignoran; el reloj siempre entra), canal de
+  salida (1–16, para las teclas y el secuenciador), **SEQ NOTES OUT** (las notas del secuenciador por USB: acento
+  con velocidad 127, el resto 80; un slide manda la nota nueva antes de soltar la anterior) y **CLOCK OUT** (con
+  el reloj interno, Start, Stop y 24 pulsos por negra; con reloj externo no manda nada).
+- **FINE TUNING:** el menú «Fine tuning» del ATEK303 de VCV, con sus mismos valores: anchura de pulso, caída de la
+  cuadrada, esquina y caída de la sierra, drive del filtro, tiempo de slide, auto-legato, saturación del OTA y de
+  salida, deriva analógica y unidad. Por defecto, los del modelo «circuit», que es como sonaba hasta ahora.
+
+## Batería
+
+Arriba a la derecha, en la cabecera: tres rayas con lo que queda (ámbar si está vacía) y la pila en azul
+cuando el USB da corriente (no hay línea del cargador: con USB no se sabe la carga). La nota que suena va a
+su izquierda. En la web no sale (no hay batería). Sin probar en el FM-1.
+
 ## Colores
 
 La paleta de los módulos Animatek de VCV (`../../VCV-Rack/UZZ-VCV-RACK/src/ui/CommonWidgets.hpp` y `AcidEditor.hpp`):
@@ -191,19 +213,26 @@ uno borrado no vuelve.
 (fm1-base, `backup = true`, magic `AT64`):
 
 1. En el FM-1 con ATEK303, guardar los presets en los huecos que se quiera (y borrar los que sobren).
-   El estado en el que quede al último SAVE será también **el de arranque** de un FM-1 nuevo.
+   Un FM-1 nuevo arranca **en el preset 01** (si el 01 está vacío, en el estado del último SAVE).
 2. Pararlo (PLAY apagado) y, con el cable puesto:
    `python3 base/tools/fm1_backup.py backup mis-presets.bak --magic AT64`
    (en el venv con mido y python-rtmidi, como `fm1_install.py`). La copia es también la de seguridad
    de esos presets; `restore` la devuelve (pide confirmación en la pantalla: SEL sí, HOME no).
 3. `python3 tools/factory_from_backup.py mis-presets.bak` escribe `app/factory_presets.h` (lista los
    presets que lleva). También lee una imagen de flash de 1 MiB (la del simulador, `flash_dump`).
+   `--drop 19` deja fuera un hueco guardado sin querer (vacío en un FM-1 nuevo).
 4. `./build.sh` (y `--web`): con esa cabecera, los 32 huecos y el arranque salen de ahí y la tabla
    `FACTORY` deja de usarse. Borrar la cabecera vuelve a la tabla.
 
 Probado en el simulador: presets hechos y uno borrado → `flash_dump` → cabecera → un FM-1 nuevo
-arranca con esos presets, sin el borrado, y con el estado guardado. Las pruebas de `app/tests/`
-cuentan con la tabla: con la cabecera de Javier, `presets.txt` y `steps64.txt` cambian.
+arranca con esos presets, sin el borrado, y con el estado guardado. La cabecera vale para el FM-1 y
+la web; el simulador de `--host` se queda con la tabla, porque las pruebas de `app/tests/` cuentan
+con ella.
+
+**Los de fábrica ahora son los de Javier** (copia del 2026-11-07, el 19 fuera con `--drop`): 1 COSMIC
+TRAX, 2 MELTED BOX, 3 ELECTRIC PULSE, 4 ACID TRAX, 5 DUB ACID, 6 HYPER BLOB, 7 FUZZY SNAKE, 8 SPACE
+MELT, 9 LASER PULSE, 10 BUBBLE ZAP, 11 BENT LINE, 12 SQUELCH GOO. La tabla de abajo es la de `app.c`,
+la que queda sin cabecera:
 
 | # | Nombre | Escala / raíz | BPM | Carácter |
 | --- | --- | --- | --- | --- |

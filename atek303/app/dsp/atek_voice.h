@@ -46,7 +46,9 @@ typedef struct {
     /* settings */
     float sr;                         /* the voice's sample rate (44100 on the FM-1) */
     float param[AT_NPARAMS];
-    int drift_on;                     /* analog drift (the circuit model's "subtle") */
+    int drift;                        /* analog drift: 0 none, 1 subtle (the circuit model's), 2 marked, 3 heavy */
+    float sat, ota;                   /* output and OTA saturation thresholds (0: none) */
+    float sq_droop_hz, saw_reset_us, saw_droop_hz;
     int auto_legato;                  /* the module's option: a new note while the gate is high slides to it */
     uint32_t unit_seed;               /* which 303: the DAC's per-note error */
 
@@ -82,6 +84,26 @@ typedef struct {
 } at_voice_t;
 
 void at_init(at_voice_t *v, float sr);
+
+/* the VCV module's "Fine tuning" menu, an option at a time: the index into its choices, as the module has them
+ * (the defaults in brackets: what the circuit model sets) */
+enum {
+    AT_OPT_PW,          /* pulse width (TM5): 44 47 50 53 56 %  [0] */
+    AT_OPT_SQ_DROOP,    /* square droop: none 8 15 30 60 Hz  [4] */
+    AT_OPT_SAW_RESET,   /* saw reset corner: 1 3 8 20 us  [3] */
+    AT_OPT_SAW_DROOP,   /* saw droop: 0.7 3 8 15 Hz  [3] */
+    AT_OPT_DRIVE,       /* filter drive: 0 +6 +12 dB  [1] */
+    AT_OPT_SLIDE,       /* slide tau: 60 120 220 ms  [1] */
+    AT_OPT_LEGATO,      /* auto-legato: off on  [1] */
+    AT_OPT_OTA,         /* OTA saturation: none soft hard  [1] */
+    AT_OPT_SAT,         /* output saturation: none soft hard  [1] */
+    AT_OPT_DRIFT,       /* analogue drift: none subtle marked heavy  [1] */
+    AT_OPT_UNIT,        /* unit (the DAC's error pattern): 1..4  [0] */
+    AT_NOPTS
+};
+extern const uint8_t AT_OPT_N[AT_NOPTS];      /* how many choices each */
+extern const uint8_t AT_OPT_DEFAULT[AT_NOPTS];
+void at_option(at_voice_t *v, int opt, int idx);   /* between blocks */
 void at_set(at_voice_t *v, int param, float value);   /* 0..1 */
 
 /* the gate, the note (MIDI), accent and slide, as the module's GATE, V/OCT, ACC and SLIDE inputs:

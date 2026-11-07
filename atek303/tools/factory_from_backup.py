@@ -3,7 +3,7 @@
 # Copyright (C) 2026 Javier (Animatek)
 """Javier's presets as the ATEK303's factory presets: app/factory_presets.h from what an FM-1 saved.
 
-    python3 tools/factory_from_backup.py BACKUP [-o app/factory_presets.h]
+    python3 tools/factory_from_backup.py BACKUP [--drop SLOT ...] [-o app/factory_presets.h]
 
 BACKUP is either
   - a backup taken over USB with fm1-base's tools/fm1_backup.py (the FM-1 with ATEK303, stopped):
@@ -83,6 +83,8 @@ def c_bytes(b, indent="    "):
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("backup")
+    ap.add_argument("--drop", type=int, nargs="*", default=[], metavar="SLOT",
+                    help="slots (1..32) to leave out, empty on a fresh FM-1: one saved by mistake")
     ap.add_argument("-o", "--out", default=str(Path(__file__).resolve().parent.parent / "app" / "factory_presets.h"))
     a = ap.parse_args()
     data = Path(a.backup).read_bytes()
@@ -95,6 +97,14 @@ def main():
         raise SystemExit(f"the banks differ in size: {sorted(sizes)}")
     bank_len = sizes.pop()
     preset_len = bank_len // 8
+    for slot in a.drop:
+        bi, k = divmod(slot - 1, 8)
+        if not 0 <= bi < NBANKS or not banks[bi]:
+            raise SystemExit(f"--drop {slot}: no such slot in the backup")
+        b = bytearray(banks[bi])
+        b[k * preset_len:(k + 1) * preset_len] = bytes(preset_len)
+        banks[bi] = bytes(b)
+        print(f"  slot {slot}: dropped")
     names = []
     for bi, b in enumerate(banks):
         for k in range(8 if b else 0):

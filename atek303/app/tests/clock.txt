@@ -1,0 +1,38 @@
+# reloj MIDI externo (un DAW): Start, el paso 1 dura 6 pulsos y el 2 entra en el 7.º
+wait 600
+midi FA
+wait 5
+expect running 1
+expect step 0
+midi F8
+wait 18
+midi F8
+wait 18
+midi F8
+wait 18
+midi F8
+wait 18
+midi F8
+wait 18
+midi F8
+wait 18
+expect step 0
+midi F8
+wait 18
+expect step 1
+midi F8
+wait 18
+midi F8
+wait 18
+midi F8
+wait 18
+midi F8
+wait 18
+midi F8
+wait 18
+midi F8
+wait 18
+expect step 2
+midi FC
+wait 20
+expect running 0

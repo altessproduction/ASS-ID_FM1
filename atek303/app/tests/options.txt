@@ -1,0 +1,59 @@
+# OPTIONS: HOME mantenido 1,5 s; app/build/host/atek303_host app/tests/options.txt app/build/host
+wait 600
+# HOME corto sigue pasando página
+tap HOME
+wait 30
+expect page 1
+expect opts 0
+# mantenido: el menú, sin pasar página
+press HOME
+wait 1000
+expect opts 0
+wait 600
+expect opts 1
+release HOME
+wait 30
+expect opts 1
+expect page 1
+shot options.png
+# K1 cambia el color: GREEN
+expect optcur 0
+turn K1 1
+wait 30
+expect color 1
+shot options_green.png
+# SELECT baja a ANALOG DRIFT (el 14) y K2 lo pone en MARKED
+turn SELECT 14
+wait 30
+expect optcur 14
+turn K2 1
+wait 60
+expect drift 2
+shot options_fine.png
+# SEQ NOTES OUT y CLOCK OUT
+turn SELECT -10
+wait 30
+expect optcur 4
+turn K1 1
+wait 30
+expect optval 1
+# HOME cierra y guarda; su suelta no pasa página
+tap HOME
+wait 30
+expect opts 0
+expect page 1
+# el secuenciador manda notas y reloj (midi_out.txt)
+tap PLAY
+wait 1000
+# a 125 BPM, 24 pulsos por negra: 2 s más son 100 pulsos más
+expect clocks_out 54
+wait 2000
+expect clocks_out 154
+tap PLAY
+wait 30
+# sobrevive a un reinicio
+reboot
+wait 600
+expect color 1
+expect drift 2
+shot options_reboot.png

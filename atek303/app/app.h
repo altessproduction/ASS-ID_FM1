@@ -13,8 +13,10 @@
 void app_splash(void);
 
 /* the store: the app's settings, the panel calibration (the platform's), and their flash offsets */
-enum { OBJ_SETTINGS, OBJ_PANEL, OBJ_PRESETS_A, OBJ_PRESETS_B, OBJ_PRESETS_C, OBJ_PRESETS_D, OBJ_NOBJ };   /* presets: 8 in each */
-#define APP_STORE_MAP {0xFC000u, 0xDC000u, 0xD8000u, 0xDA000u, 0xD4000u, 0xD6000u}   /* in the main store (0x97000..0xE0000) */
+enum { OBJ_SETTINGS, OBJ_PANEL, OBJ_PRESETS_A, OBJ_PRESETS_B, OBJ_PRESETS_C, OBJ_PRESETS_D, OBJ_OPTIONS, OBJ_NOBJ };   /* presets: 8 in each */
+/* in the main store (0x97000..0xE0000); OBJ_OPTIONS (the OPTIONS menu: colour, MIDI, fine tuning) is the unit's own,
+ * apart from the settings so that no preset carries it, and not in the backup */
+#define APP_STORE_MAP {0xFC000u, 0xDC000u, 0xD8000u, 0xDA000u, 0xD4000u, 0xD6000u, 0xDE000u}
 /* backup and restore over USB (fm1.toml backup = true; tools/fm1_backup.py --magic AT64): the settings and the presets.
  * A backup is also how Javier's presets become the factory ones (tools/factory_from_backup.py) */
 #define APP_BACKUP_OBJS {OBJ_SETTINGS, OBJ_PRESETS_A, OBJ_PRESETS_B, OBJ_PRESETS_C, OBJ_PRESETS_D}

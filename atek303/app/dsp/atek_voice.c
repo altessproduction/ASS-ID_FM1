@@ -27,6 +27,9 @@
 #define SAW_RESET_US 20.0f
 #define SAW_DROOP_HZ 15.0f
 #define SQUARE_SLEW_US 5.0f
+static const float CUT_DRIFT[4] = {0.0f, 0.015f, 0.045f, 0.10f};   /* the module's drift: none subtle marked heavy */
+static const float DAC_CENTS[4] = {0.0f, 1.5f, 5.0f, 12.0f};
+static const float DRIFT_CENTS[4] = {0.0f, 1.5f, 3.5f, 6.0f};
 #define OSC_GAIN 0.484f
 /* the ATEK filter */
 #define CAP_RATIO (33.0f / 18.0f)
@@ -153,12 +156,11 @@ static float dac_error_cents(const at_voice_t *v, int note)   /* -1 .. +1, fixed
 static void osc_coeffs(at_voice_t *v)
 {
     float sr = OS * v->sr;
-    float fc_saw = 1.0f / (FM_TWO_PI * SAW_RESET_US * 1e-6f), fc_sq = 1.0f / (FM_TWO_PI * SQUARE_SLEW_US * 1e-6f);
+    float fc_saw = 1.0f / (FM_TWO_PI * v->saw_reset_us * 1e-6f), fc_sq = 1.0f / (FM_TWO_PI * SQUARE_SLEW_US * 1e-6f);
     v->a_lp_saw = 1.0f - fm_expf(-FM_TWO_PI * fm_minf(fc_saw, 0.45f * sr) / sr);
     v->a_lp_sq = 1.0f - fm_expf(-FM_TWO_PI * fm_minf(fc_sq, 0.45f * sr) / sr);
-    v->a_hp_saw = fm_expf(-FM_TWO_PI * SAW_DROOP_HZ / sr);
-    v->a_hp_sq = fm_expf(-FM_TWO_PI * SQUARE_DROOP_HZ / sr);
-    v->pw = PULSE_WIDTH;
+    v->a_hp_saw = fm_expf(-FM_TWO_PI * v->saw_droop_hz / sr);
+    v->a_hp_sq = fm_expf(-FM_TWO_PI * v->sq_droop_hz / sr);
 }
 static void osc_reset(at_voice_t *v)
 {
@@ -336,8 +338,8 @@ static void update_params(at_voice_t *v)           /* Atek303::updateParams, eve
     float cut_hz, x, e, dt, bend;
     v->tuning = 400.0f + 80.0f * v->param[AT_TUNING];
     cut_hz = 314.0f * fm_powf(2394.0f / 314.0f, v->param[AT_CUTOFF]);
-    if (v->drift_on)
-        cut_hz *= 1.0f + v->drift_cut * 0.015f;
+    if (v->drift)
+        cut_hz *= 1.0f + v->drift_cut * CUT_DRIFT[v->drift];
     v->cutoff = cut_hz;
     /* resonance: the module pre-warps the linear pot by the inverse of the filter's curve, so the
      * ATEK filter's 0..1 resonance is the knob itself */
@@ -355,8 +357,9 @@ static void update_params(at_voice_t *v)           /* Atek303::updateParams, eve
     v->drift_pitch = clampf(v->drift_pitch - v->drift_pitch * (dt / DRIFT_TAU) + gauss(v) * e, -3.0f, 3.0f);
     v->drift_cut = clampf(v->drift_cut - v->drift_cut * (dt / DRIFT_TAU) + gauss(v) * e, -3.0f, 3.0f);
     bend = 0.0f;
-    if (v->drift_on)
-        bend = (dac_error_cents(v, v->held_note < 0 ? 60 : v->held_note) * 1.5f + v->drift_pitch * 1.5f) / 100.0f;
+    if (v->drift)
+        bend = (dac_error_cents(v, v->held_note < 0 ? 60 : v->held_note) * DAC_CENTS[v->drift]
+                + v->drift_pitch * DRIFT_CENTS[v->drift]) / 100.0f;
     v->pitch_wheel = fm_exp2f(bend / 12.0f);
 }
 
@@ -375,8 +378,14 @@ void at_init(at_voice_t *v, float sr)
     v->param[AT_DECAY] = 0.4f;
     v->param[AT_ACCENT] = 0.5f;
     v->param[AT_WAVE] = 1.0f;
-    v->drift_on = 1;
+    v->drift = 1;
     v->unit_seed = 0;
+    v->sat = SAT;
+    v->ota = OTA_HEADROOM;
+    v->pw = PULSE_WIDTH;
+    v->sq_droop_hz = SQUARE_DROOP_HZ;
+    v->saw_reset_us = SAW_RESET_US;
+    v->saw_droop_hz = SAW_DROOP_HZ;
     v->rng = 0x9E3779B9u;
     v->held_note = -1;
     v->idle = 1;
@@ -413,6 +422,38 @@ void at_init(at_voice_t *v, float sr)
     osc_coeffs(v);
     update_params(v);
     v->div = 0;
+}
+
+/* the module's fine tuning (Atek303.cpp: its menu's tables) */
+const uint8_t AT_OPT_N[AT_NOPTS] = {5, 5, 4, 4, 3, 3, 2, 3, 3, 4, 4};
+const uint8_t AT_OPT_DEFAULT[AT_NOPTS] = {0, 4, 3, 3, 1, 1, 1, 1, 1, 1, 0};
+void at_option(at_voice_t *v, int opt, int idx)
+{
+    static const float PW[5] = {0.44f, 0.47f, 0.50f, 0.53f, 0.56f};
+    static const float DROOP[5] = {0.5f, 8.0f, 15.0f, 30.0f, 60.0f};
+    static const float SAW_RESET[4] = {1.0f, 3.0f, 8.0f, 20.0f};
+    static const float SAW_DROOP[4] = {0.7f, 3.0f, 8.0f, 15.0f};
+    static const float DRIVE[3] = {1.0f, 2.0f, 4.0f};
+    static const float SLIDE_TAU[3] = {60.0f, 120.0f, 220.0f};
+    static const float OTA[3] = {0.0f, 0.6f, 0.3f};
+    static const float SATS[3] = {0.0f, 7.0f, 4.5f};
+    if (opt < 0 || opt >= AT_NOPTS)
+        return;
+    if (idx < 0 || idx >= AT_OPT_N[opt])
+        idx = AT_OPT_DEFAULT[opt];
+    switch (opt) {
+    case AT_OPT_PW: v->pw = PW[idx]; break;
+    case AT_OPT_SQ_DROOP: v->sq_droop_hz = DROOP[idx]; osc_coeffs(v); break;
+    case AT_OPT_SAW_RESET: v->saw_reset_us = SAW_RESET[idx]; osc_coeffs(v); break;
+    case AT_OPT_SAW_DROOP: v->saw_droop_hz = SAW_DROOP[idx]; osc_coeffs(v); break;
+    case AT_OPT_DRIVE: v->f_drive = DRIVE[idx]; break;
+    case AT_OPT_SLIDE: v->slew_coeff = fm_expf(-1.0f / (v->sr * 0.001f * SLIDE_TAU[idx])); break;
+    case AT_OPT_LEGATO: v->auto_legato = idx; break;
+    case AT_OPT_OTA: v->ota = OTA[idx]; break;
+    case AT_OPT_SAT: v->sat = SATS[idx]; break;
+    case AT_OPT_DRIFT: v->drift = idx; break;
+    case AT_OPT_UNIT: v->unit_seed = (uint32_t)idx; break;
+    }
 }
 
 void at_set(at_voice_t *v, int param, float value)
@@ -503,11 +544,13 @@ void at_render(at_voice_t *v, float *out, uint32_t n)
         s = op_run(&v->allpass, s);
         s = op_run(&v->hp2, s);
         s = bq_rosic(&v->notch, s);
-        s = OTA_HEADROOM * fm_tanhf(s * (1.0f / OTA_HEADROOM));
+        if (v->ota > 0.0f)
+            s = v->ota * fm_tanhf(s / v->ota);
         s *= amp_out * v->amp_scaler;
         /* the module: volts, the soft output saturation, back to about -1..1 */
         s *= OUTPUT_LEVEL;
-        s = SAT * fm_tanhf(s * (1.0f / SAT));
+        if (v->sat > 0.0f)
+            s = v->sat * fm_tanhf(s / v->sat);
         out[i] = clampf(s, -12.0f, 12.0f) * (1.0f / OUTPUT_LEVEL);
     }
 }
