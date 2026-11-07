@@ -4,6 +4,21 @@ La voz del **ATEK303** de VCV Rack (`../../VCV-Rack/ATEK303`) como firmware del 
 sobre **fm1-base**. Primer paso del plan (ver `../docs/05-ideas-animatek.md`): aprender la
 plataforma con un motor que ya es nuestro. Licencia GPL-3.0-or-later, como el ATEK303.
 
+## Estado (2026-11-07): lo que trae la 1.1
+
+- **64 pasos** en cuatro páginas, con el generador v5 de UZZ-VCV-RACK (el mismo patrón que en VCV con la misma
+  semilla). SEQ en marcha entra en el siguiente compás; un preset, al acabar el patrón (NEXT en ámbar).
+- **Editor por páginas**: SELECT los 16 pasos de la página, K4 la página, K1 gate, K2 octava, K3 semitono,
+  OCT− + K4 la longitud.
+- **12 presets de fábrica de Javier** (`app/factory_presets.h`, de su copia por USB); un FM-1 nuevo arranca en el 01.
+  Pantalla de guardar con OVERWRITE? NO / YES. Copia y restauración por USB (`fm1_backup.py --magic AT64`).
+- **OPTIONS** (OCT− + HOME): color, canales MIDI, notas del secuenciador y reloj por USB, y el ajuste fino del
+  ATEK303 de VCV (ver «Opciones»).
+- **Batería** arriba a la derecha y **limitador** a la salida (+3 a +6 dB de media, sin recorte duro).
+- Reloj MIDI externo clavado con el DAW (el paso 2 en el 7.º pulso). En el plugin de fm1-emu el DAW no manda
+  reloj (el plugin no convierte el transporte); con el FM-1 real, sí, por USB.
+- Todo instalado y probado en el FM-1 real el 07/11; siete pruebas del simulador en `app/tests/`.
+
 ## Estado (2026-11-06)
 
 - [x] **Motor portado a C** (`app/dsp/atek_voice.c`): Open303 con nuestros cambios, el oscilador
@@ -148,10 +163,10 @@ Se probaron parameter locks (REC grababa por paso y había una vista de carriles
 convencieron y se quitaron el mismo día. El código, por si se retoma, quedó fuera del repo en el scratchpad de la
 sesión; con la descripción del changelog se puede rehacer.
 
-## Opciones (HOME mantenido)
+## Opciones (OCT− + HOME)
 
-**HOME mantenido 1,5 s** abre **OPTIONS**; HOME (o cualquier botón) la cierra y la guarda. HOME corto sigue
-pasando de página. SELECT elige la línea y K1–K4 cambian el valor. Las opciones son del aparato, no de los presets:
+**OCT− + HOME** (OCT− mantenido y HOME) abre **OPTIONS**; HOME (o cualquier botón menos OCT−) la cierra y la
+guarda. HOME solo sigue pasando de página, aunque se mantenga; OCT− solo baja la octava al soltarlo. SELECT elige la línea y K1–K4 cambian el valor. Las opciones son del aparato, no de los presets:
 van en su propio objeto (`OBJ_OPTIONS`, 0xDE000), no se guardan con un preset ni entran en la copia por USB.
 
 - **DISPLAY · COLOR:** ANIMATEK (los azules de VCV) o los temas de fm1-base: GREEN, AMBER, CYAN, RED y MONO. Los

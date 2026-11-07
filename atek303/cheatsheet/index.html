@@ -71,7 +71,7 @@ footer b{color:var(--dim)}
     <h1>ATEK<span>303</span> <span style="color:var(--txt);font-size:.55em;letter-spacing:0">cheat sheet</span></h1>
     <div class="sub">Acid firmware for the <b>M-VAVE FM-1</b> · by Animatek</div>
   </div>
-  <div class="tag"><strong>PRESS PLAY</strong><br>a line plays · turn the knobs · it moves<br>v1.0 · GPL-3.0 · github.com/animatek/FM1-Animatek</div>
+  <div class="tag"><strong>PRESS PLAY</strong><br>a line plays · turn the knobs · it moves<br>v1.1 · GPL-3.0 · github.com/animatek/FM1-Animatek</div>
 </header>
 
 <div class="grid">
@@ -100,10 +100,10 @@ footer b{color:var(--dim)}
       <tr><td><span class="k">GLO</span></td><td>LOCK: SEQ mutates all instead of a new seed</td></tr>
       <tr><td><span class="k">EDIT</span></td><td>step editor on / off</td></tr>
       <tr><td><span class="k">HOME</span></td><td>VCF → VOICE → PATT → SEQ; from anywhere else, VCF</td></tr>
-      <tr><td><span class="k">HOME</span> held</td><td>OPTIONS: colour, MIDI channels, seq notes / clock out, fine tuning</td></tr>
+      <tr><td><span class="k">OCT−</span> + <span class="k">HOME</span></td><td>OPTIONS: colour, MIDI channels, seq notes / clock out, fine tuning</td></tr>
       <tr><td><span class="k">FX</span></td><td>effect pages (again: the next one)</td></tr>
       <tr><td><span class="k">SAVE</span></td><td>save screen: slot, name, OVERWRITE? NO / YES</td></tr>
-      <tr><td><span class="k">OCT−</span> <span class="k">OCT+</span></td><td>octave</td></tr>
+      <tr><td><span class="k">OCT−</span> <span class="k">OCT+</span></td><td>octave (OCT− on release)</td></tr>
       <tr><td>keys</td><td>stopped: play the voice (hard = accent) · running: transpose</td></tr>
     </table>
   </div>
@@ -144,11 +144,11 @@ footer b{color:var(--dim)}
   <div class="box">
     <h2 class="amber">Presets · 32 slots</h2>
     <p><span class="k">SAVE</span> opens the save screen: <span class="k">PRESETS</span> picks the slot, <span class="k">SELECT</span> a new acid name, <span class="k">SAVE</span> stores everything (pattern, voice, effects, tempo, scale, root); over a used slot it asks OVERWRITE? NO / YES. Any other button cancels.</p>
-    <p>8 factory presets in slots 1–8. Turn <span class="k">PRESETS</span>: the list opens and loads each preset as the cursor reaches it; while playing it waits for the end of the pattern, like a 303 (<b>NEXT</b>). <span class="k">ENV</span> twice deletes, <span class="k">SAVE</span> saves on that slot, <span class="k">HOME</span> closes (or 6 s untouched).</p>
+    <p>12 factory presets in slots 1–12; a new FM-1 starts on 01. Turn <span class="k">PRESETS</span>: the list opens and loads each preset as the cursor reaches it; while playing it waits for the end of the pattern, like a 303 (<b>NEXT</b>). <span class="k">ENV</span> twice deletes, <span class="k">SAVE</span> saves on that slot, <span class="k">HOME</span> closes (or 6 s untouched).</p>
   </div>
   <div class="box">
-    <h2 class="blue">MIDI in</h2>
-    <p>Stopped: notes play the voice. Running: notes transpose. Clock, start, stop and continue drive the sequencer.</p>
+    <h2 class="blue">MIDI</h2>
+    <p>In: stopped, notes play the voice; running, they transpose. Clock, start, stop and continue drive the sequencer. Out (USB): the keys and the sequencer's notes (accent 127); clock out on request. Channels in <span class="k">OPTIONS</span>.</p>
     <div class="cc">
       <div><span>74</span>cutoff</div><div><span>71</span>reso</div><div><span>75</span>env mod</div><div><span>76</span>decay</div>
       <div><span>77</span>accent</div><div><span>78</span>tune</div><div><span>79</span>wave</div><div><span>USB</span>audio to PC</div>

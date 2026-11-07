@@ -17,6 +17,7 @@ emulador.
 | Ver qué firmwares hay, cuáles triunfan y cómo están hechos (AMB-1, Mutable…) | [docs/04-firmwares-existentes.md](docs/04-firmwares-existentes.md) |
 | Las ideas para el firmware de Animatek, con lo que se puede y lo que no | [docs/05-ideas-animatek.md](docs/05-ideas-animatek.md) |
 | Bajar los firmwares al disco | [firmwares/](firmwares/README.md) |
+| **ATEK303**, nuestro firmware acid (1.1): qué hace, cómo se compila y se instala | [atek303/README.md](atek303/README.md) · [cheat sheet](https://animatek.github.io/FM1-Animatek/atek303/cheatsheet/) · [tocarlo en el navegador](https://animatek.github.io/FM1-Animatek/atek303/play/) |
 
 ## Carpetas
 

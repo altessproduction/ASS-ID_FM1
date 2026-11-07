@@ -144,7 +144,7 @@ static preset_t presets[NPRESETS];
 typedef char preset_fits[sizeof(preset_t) * PRESETS_PER_OBJ <= PLAT_STORE_MAX ? 1 : -1];
 static int8_t cur_preset = -1;                 /* the one loaded (or saved) last, -1 none */
 
-/* the OPTIONS menu (HOME held): the unit's own choices, apart from the settings so no preset carries them (OBJ_OPTIONS,
+/* the OPTIONS menu (OCT- + HOME): the unit's own choices, apart from the settings so no preset carries them (OBJ_OPTIONS,
  * saved as the menu closes). Each an index into its choices */
 #define OPT_MAGIC 0x4F505431u                  /* "OPT1" */
 enum { OP_COLOR, OP_MIDI_IN, OP_MIDI_OUT, OP_SEQ_OUT, OP_CLOCK_OUT, OP_FINE, OP_N = OP_FINE + AT_NOPTS };
@@ -1029,11 +1029,9 @@ static struct {
     uint32_t del_t;                            /* ENV pressed once in the list: a second press deletes */
     uint8_t redraw;
     uint8_t loaded_seen;
-    uint8_t oct_hold, oct_used;
+    uint8_t oct_hold, oct_used;                /* OCT- held, and used in a combination meanwhile (+ HOME, + K4) */
     float page_pos;                            /* K4 in the editor: where the knob is over the pages, 0..1 */
     uint8_t opts, opt_cur, opt_dirty;          /* the OPTIONS menu: up, its item, changed (saved as it closes) */
-    uint32_t home_t;                           /* HOME went down then (| 1): released soon, the pages; held, OPTIONS */
-    uint8_t home_used;                         /* this press of HOME did its thing already */                /* the editor: OCT- held, and K4 turned while it was (STEPS) */                       /* the render's loaded_n, as the screen last saw it */
 } ui;
 
 static void text_cat(char *d, const char *s)
@@ -1483,12 +1481,12 @@ static void input(void)
             ui.redraw = 1;
             continue;
         }
-        if (ui.opts) {                         /* OPTIONS: HOME (or any button) closes it, saved */
-            opt_close();
-            if (k == B_HOME) {
-                ui.home_t = plat_ms() | 1u;
-                ui.home_used = 1;              /* (its release does not turn the page) */
-            }
+        if (ui.opts) {                         /* OPTIONS: HOME (or any button but OCT-) closes it, saved */
+            if (k == B_OCTDN) {                /* (OCT- + HOME again: closes; its release changes nothing) */
+                ui.oct_hold = 1;
+                ui.oct_used = 1;
+            } else
+                opt_close();
             continue;
         }
         if (ui.list && k == B_ENV) {           /* delete: twice, within two seconds */
@@ -1504,11 +1502,11 @@ static void input(void)
                 app_say("ENV AGAIN", "TO DELETE");
             }
             ui.redraw = 1;
-        } else if (k == B_OCTDN && ui.edit) {
-            ui.oct_hold = 1;                   /* the editor: on release, unless K4 turned meanwhile (STEPS) */
+        } else if (k == B_OCTDN) {
+            ui.oct_hold = 1;                   /* on release, unless held for a combination meanwhile: + HOME
+                                                  OPTIONS, + K4 in the editor STEPS */
             ui.oct_used = 0;
-        } else if (k == B_OCTDN)
-            octave_step(-1);
+        }
         else if (k == B_OCTUP)
             octave_step(1);
         else if (k == B_PLAY)
@@ -1534,10 +1532,14 @@ static void input(void)
             post(EV_MUTATE, k == B_ENV ? ACID_MUT_TIME : k == B_LFO ? ACID_MUT_PITCH : ACID_MUT_ARTICULATION,
                  (uint32_t)view_base());       /* the page on view */
             set_dirty = 1;
-        } else if (k == B_HOME) {              /* on release: the pages; held 1.5 s: OPTIONS */
-            ui.home_t = plat_ms() | 1u;
-            ui.home_used = 0;
-        } else if (k == B_REC)
+        } else if (k == B_HOME && ui.oct_hold) {   /* OCT- + HOME: OPTIONS */
+            ui.oct_used = 1;
+            ui.opts = 1;
+            ui.edit = ui.list = 0;
+            ui.redraw = 1;
+        } else if (k == B_HOME)
+            home_pages();
+        else if (k == B_REC)
             post(EV_UNDO, 0, 0);
         else if (k == B_GLO) {
             set.locked = (uint8_t)!set.locked;
@@ -1548,22 +1550,7 @@ static void input(void)
             ui.redraw = 1;
         }
     }
-    if (ui.home_t) {
-        if (btn >> B_HOME & 1u) {
-            if (!ui.home_used && plat_ms() - ui.home_t >= 1500u) {
-                ui.home_used = 1;              /* held: OPTIONS */
-                ui.opts = 1;
-                ui.edit = ui.list = 0;
-                ui.save = 0;
-                ui.redraw = 1;
-            }
-        } else {
-            if (!ui.home_used)
-                home_pages();
-            ui.home_t = 0;
-        }
-    }
-    if (ui.oct_hold && !(btn >> B_OCTDN & 1u)) {   /* OCT- let go in the editor: the octave, if K4 did not turn */
+    if (ui.oct_hold && !(btn >> B_OCTDN & 1u)) {   /* OCT- let go: the octave, unless a combination used it */
         ui.oct_hold = 0;
         if (!ui.oct_used)
             octave_step(-1);

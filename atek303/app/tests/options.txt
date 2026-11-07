@@ -1,20 +1,34 @@
-# OPTIONS: HOME mantenido 1,5 s; app/build/host/atek303_host app/tests/options.txt app/build/host
+# OPTIONS: OCT- + HOME; app/build/host/atek303_host app/tests/options.txt app/build/host
 wait 600
-# HOME corto sigue pasando página
+# HOME solo sigue pasando página, mantenido también
 tap HOME
 wait 30
 expect page 1
 expect opts 0
-# mantenido: el menú, sin pasar página
 press HOME
-wait 1000
-expect opts 0
-wait 600
-expect opts 1
+wait 3500
 release HOME
+wait 30
+expect opts 0
+expect page 2
+tap HOME
+wait 30
+tap HOME
+wait 30
+tap HOME
+wait 30
+expect page 1
+# OCT- + HOME: el menú, sin pasar página ni cambiar la octava
+expect octave -1
+press OCT-
+wait 100
+tap HOME
+wait 60
+release OCT-
 wait 30
 expect opts 1
 expect page 1
+expect octave -1
 shot options.png
 # K1 cambia el color: GREEN
 expect optcur 0
@@ -57,3 +71,7 @@ wait 600
 expect color 1
 expect drift 2
 shot options_reboot.png
+# OCT- solo sigue bajando la octava (al soltarlo)
+tap OCT-
+wait 30
+expect octave -2
