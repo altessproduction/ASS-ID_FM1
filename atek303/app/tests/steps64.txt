@@ -26,32 +26,24 @@ tap LFO
 wait 60
 expect samepage1 1
 expect mutations 2
-# el editor salta de página al pasar del paso 16
+# el editor salta de página al pasar del paso 16 (desde la página SEQ, EDIT iría a PATT: antes a VCF)
+tap HOME
+wait 30
 tap EDIT
 wait 30
 expect cursor 0
-# SELECT recorre solo los 16 pasos de la página (vuelve al 1 tras el 16); K4 cambia de página
+# SELECT recorre el patrón entero (la página a la vista lo sigue) y da la vuelta al final
 turn SELECT 17
-wait 30
-expect cursor 1
-# K4 reparte las 4 páginas en todo su recorrido (unos 25 clics cada una): pocos clics no cambian de página
-turn K4 5
-wait 30
-expect cursor 1
-turn K4 10
 wait 30
 expect cursor 17
 shot steps64_editor.png
-turn K4 60
+turn SELECT 32
 wait 30
 expect cursor 49
-turn K4 20
+turn SELECT 15
 wait 30
-expect cursor 49
-turn K4 -30
-wait 30
-expect cursor 33
-turn K4 30
+expect cursor 0
+turn SELECT -15
 wait 30
 expect cursor 49
 # OCT- mantenido + K4: STEPS (y la octava no cambia); con 40 pasos el cursor se recoloca en el último
@@ -66,7 +58,7 @@ expect cursor 39
 expect octave -1
 turn SELECT 1
 wait 30
-expect cursor 32
+expect cursor 0
 # OCT- solo, en el editor: baja la octava al soltarlo
 tap OCT-
 wait 30

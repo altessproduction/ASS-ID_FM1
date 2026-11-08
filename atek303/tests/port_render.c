@@ -14,7 +14,9 @@ int main(int argc, char **argv) {
     static at_voice_t v; long i, total = (long)STEP_SAMPLES * 16 * BARS;
     float *out = malloc(sizeof(float) * total);
     at_init(&v, SR);
-    v.drift_on = argc > 2 ? atoi(argv[2]) : 0;
+    v.drift = argc > 2 ? atoi(argv[2]) : 0;
+    if (getenv("OSC"))   /* OSC=k: la entrada k de la lista de WAVE (0 SAW … 13 SQUARE) */
+        at_set(&v, AT_WAVE, (float)atoi(getenv("OSC")) / (float)(AT_NOSC - 1));
     for (i = 0; i < total; i++) {   /* de muestra en muestra, como la referencia */
         int g, n, a, sl; cables(i, &g, &n, &a, &sl);
         at_gate(&v, g, n, a, sl);

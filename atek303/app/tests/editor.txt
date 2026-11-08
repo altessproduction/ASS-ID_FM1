@@ -13,9 +13,9 @@ wait 30
 expect gate0 1
 expect semi0 12
 expect cursor 1
-# K1: el gate del paso 2 (REST -> NOTE -> TIE); el patrón de partida (DENSITY 100 %) lo trae en NOTE
+# K4: el gate del paso 2 (REST -> NOTE -> TIE); el patrón de partida (DENSITY 100 %) lo trae en NOTE
 expect gate1 1
-turn K1 1
+turn K4 1
 wait 30
 expect gate1 2
 # volvemos al paso 1: acento y slide
@@ -33,8 +33,8 @@ expect acc0 1
 turn K2 1
 wait 30
 expect semi0 24
-# K3: un semitono arriba, fuera de la escala ACID: pasa a cromática
-turn K3 1
+# K1: un semitono arriba, fuera de la escala ACID: pasa a cromática
+turn K1 1
 wait 30
 expect semi0 25
 expect scale 7
@@ -43,6 +43,23 @@ tap REC
 wait 30
 expect semi0 24
 shot editor2.png
+# K3: ACC / SLIDE del paso 1 (nada, ACC, SLIDE, los dos; sin dar la vuelta)
+turn K3 1
+wait 30
+expect acc0 0
+expect sld0 1
+turn K3 1
+wait 30
+expect acc0 1
+expect sld0 1
+turn K3 1
+wait 30
+expect acc0 1
+expect sld0 1
+turn K3 -3
+wait 30
+expect acc0 0
+expect sld0 0
 # slides (LFO): hacia la misma nota (legato) y hacia otra nota se quedan; hacia un silencio también se
 # guarda, aunque no suene
 turn SELECT 3

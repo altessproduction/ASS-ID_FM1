@@ -1,0 +1,81 @@
+# Los controles del 08/11: app/build/host/atek303_host app/tests/controls.txt app/build/host
+wait 600
+# ALGO: la onda desde cualquier página (arranca en SAW o SQUARE según el de fábrica)
+expect page 0
+turn ALGO -13
+wait 60
+expect wave 0
+turn ALGO 2
+wait 60
+expect wave 2
+expect page 0
+turn ALGO 20
+wait 60
+expect wave 13
+turn ALGO -13
+wait 60
+expect wave 0
+# EDIT: editor -> página SEQ -> página PATT -> editor
+tap EDIT
+wait 30
+expect edit 1
+tap EDIT
+wait 30
+expect edit 0
+expect page 3
+tap EDIT
+wait 30
+expect edit 0
+expect page 2
+tap EDIT
+wait 30
+expect edit 1
+tap EDIT
+wait 30
+expect page 3
+# GLOBAL: las opciones; GLOBAL otra vez las cierra
+tap GLO
+wait 30
+expect opts 1
+shot controls_opts.png
+tap GLO
+wait 30
+expect opts 0
+# la lista de presets: el cursor carga como antes; SEL carga el de debajo; una tecla blanca es un preset
+turn PRESET 1
+wait 60
+expect list 1
+turn PRESET 1
+wait 60
+expect listcur 1
+expect preset 1
+tap SEL
+wait 60
+expect preset 1
+# tecla blanca 3 (la 4 del teclado: la E) = preset 3; la 1.ª (F) = preset 1
+key 4 down
+wait 30
+key 4 up
+wait 60
+expect listcur 2
+expect preset 2
+key 0 down
+wait 30
+key 0 up
+wait 60
+expect preset 0
+expect list 1
+leds
+shot controls_list.png
+# en marcha, SEL carga al momento, sin esperar al final del patrón
+tap PLAY
+wait 500
+turn PRESET 3
+wait 30
+expect listcur 3
+tap SEL
+wait 60
+expect preset 3
+expect pending -1
+tap PLAY
+wait 30

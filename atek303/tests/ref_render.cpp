@@ -4,6 +4,7 @@
 #include "AtekOsc.hpp"
 #include "AtekFilter.hpp"
 #include <cmath>
+#include <cstdlib>
 #include <cstdio>
 #include <vector>
 #include <algorithm>
@@ -26,7 +27,23 @@ int main(int argc, char **argv) {
     filt.setDrive(2.0); core.otaHeadroom = 0.6;
     osc.setShape(0.44, 60.0); osc.setSawShape(20.0, 15.0);
     core.setSlideInPitchDomain(true); core.setSlideTimeConstant(120.0);
-    const float P_TUNE = 0.5f, P_CUT = 0.35f, P_RES = 0.5f, P_ENV = 0.5f, P_DEC = 0.4f, P_ACC = 0.5f, P_WAVE = 1.0f;
+#ifdef ATEK_LAYER   // la capa extra del módulo (UZZ-VCV-RACK), con las tablas de su menú
+    if (const char* e = getenv("LAYER")) {
+        int x[8] = {0, 1, 0, 0, 0, 0, 0, 0};
+        sscanf(e, "%d,%d,%d,%d,%d,%d,%d,%d", &x[0], &x[1], &x[2], &x[3], &x[4], &x[5], &x[6], &x[7]);
+        static const double SIN_LEVEL[7] = {0, 0.05, 0.10, 0.25, 0.50, 0.75, 1.00};
+        static const double SIN_PITCH[9] = {-24, -12, 0, 7, 12, 19, 24, 36, 48};
+        static const double OTHER[4] = {0, 0.25, 0.5, 1.0};
+        static const double OTHER_PITCH[6] = {0, -12, 12, 19, 24, 36};
+        static const double DETUNE[8] = {0, 5, 10, 18, 25, 40, -10, -25};
+        static const double NOISE[7] = {0, 0.10, 0.25, 0.50, 0.10, 0.25, 0.50};
+        static const double RING[4] = {0, 0.25, 0.50, 1.00};
+        static const double XMOD[6] = {0, 0.02, 0.08, 0.25, 0.50, 1.00};
+        osc.setLayer(SIN_LEVEL[x[0]], SIN_PITCH[x[1]], OTHER[x[2]], OTHER_PITCH[x[3]], DETUNE[x[4]],
+                     NOISE[x[5]], x[5] >= 4, RING[x[6]], XMOD[x[7]]);
+    }
+#endif
+    const float P_TUNE = 0.5f, P_CUT = 0.35f, P_RES = 0.5f, P_ENV = 0.5f, P_DEC = 0.4f, P_ACC = 0.5f, P_WAVE = getenv("WAVE") ? (float)atof(getenv("WAVE")) : 1.0f;
     float accF = 0, accS = 0; bool gateHigh = false, slideHigh = false;
     auto effAcc = [&]() { double b = 100.0 * P_ACC; return std::min(100.0, b * (1.0 + 0.8 * (0.5 * accF + 0.5 * accS))); };
     auto update = [&]() {

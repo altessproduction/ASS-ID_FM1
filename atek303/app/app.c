@@ -8,21 +8,26 @@
  *   SEQ             GENERATE: a new pattern (a new seed). With LOCK on: mutate all three layers. Running:
  *                   at the next bar (16 steps; NEXT until then)
  *   ENV / LFO / ARP mutate TIME / NOTES (octaves) / SLIDES and ACCENTS, on the page of 16 steps on view
- *   EDIT            the step editor (a piano roll with UP, DOWN, GATE, ACC and SLIDE rows):
- *                     SELECT moves the cursor over the 16 steps of the page; K4 the page (1:4 .. 4:4);
- *                     a key sets the step's note and moves on; K1 its gate (REST, NOTE, TIE), K2 its
- *                     octave (UP / DOWN), K3 its note a semitone; OCT- held + K4 the pattern's STEPS; ENV toggles its ACCENT, LFO its SLIDE; REC undoes; EDIT or HOME leave.
+ *   EDIT            the step editor (a piano roll with UP, DOWN, GATE, ACC and SLIDE rows). EDIT goes round the
+ *                   sequence's three: the editor -> the SEQ page -> the PATT page -> the editor.
+ *                     SELECT moves the cursor over the whole pattern (the page on view follows it);
+ *                     a key sets the step's note and moves on; K1 its note a semitone, K2 its octave (UP / DOWN),
+ *                     K3 ACC / SLIDE (none, ACC, SLIDE, both), K4 its gate (REST, NOTE, TIE); OCT- held + K4 the
+ *                     pattern's STEPS; ENV toggles its ACCENT, LFO its SLIDE; REC undoes; HOME leaves.
  *                     A note outside the scale turns the scale CHROMATIC (nothing is lost)
+ *   ALGO            the WAVE (SAW, the extra layer's combinations, SQUARE), from any page
  *   HOME            the four sound pages in turn: VCF, VOICE, PATT, SEQ (again: the next one); from the
  *                   editor, the preset list or an effect page, straight to VCF
  *   REC             undo the last mutation or edit
- *   GLO             LOCK: GENERATE mutates instead of making a new seed
+ *   GLO             OPTIONS (colour, MIDI, fine tuning); any button but OCT- closes them (OCT- + HOME opens them too)
+ *   OCT- + SEQ      LOCK: GENERATE mutates instead of making a new seed (SEQ lit while on)
  *   keys            stopped: play the voice (mono; legato slides; a hard press is an accent).
  *                   Running: transpose the pattern (the key is the new root, as on a 303)
  *   OCT- / OCT+     the octave
  *   SELECT          the page; K1..K4 its four knobs:
  *                     1 VOICE   CUTOFF, RESO, ENV MOD, DECAY
- *                     2 VOICE   ACCENT, TUNE, WAVE, GATE (the sequencer's gate length)
+ *                     2 VOICE   ACCENT, TUNE, WAVE (SAW, the extra layer's combinations, SQUARE), GATE (the
+ *                               sequencer's gate length)
  *                     3 PATTERN DENSITY, RANGE, ACCENTS, SLIDES (they regrow the pattern from its seed)
  *                     4 PATTERN STEPS, SCALE, TEMPO, ROOT
  *                     5 DELAY   TIME (synced: 1/16 .. 1/4.), FEEDBACK, TONE, MIX (ping-pong)
@@ -38,7 +43,9 @@
  *   PRESETS         the encoder opens the PRESET LIST (the 32 slots) and moves through it; a saved preset
  *                   loads as the cursor reaches it (running: at the end of the pattern, as on a 303; NEXT
  *                   until then). A fresh FM-1 comes with 8 factory presets in slots 1..8.
- *                   In the list: ENV twice deletes the one selected, SAVE opens the SAVE screen on it, HOME closes it (it closes by itself after 6 s untouched)
+ *                   In the list (SEL lit): SEL loads the one selected at once (running too); the white keys are
+ *                   the presets of the cursor's half (1..16 or 17..32: the one loaded lit, the saved ones dim) and load
+ *                   at once; ENV twice deletes the one selected, SAVE opens the SAVE screen on it, HOME closes it (it closes by itself after 6 s untouched)
  *   MIDI in         stopped: notes play the voice; running: notes transpose. Clock, start, stop and
  *                   continue drive the sequencer. CC 74 cutoff, 71 reso, 75 env mod, 76 decay,
  *                   77 accent, 78 tune, 79 wave
@@ -224,7 +231,7 @@ static at_voice_t voice;
 enum { EV_NOTE_ON, EV_NOTE_OFF, EV_PARAM, EV_PANIC, EV_PLAY, EV_GENERATE, EV_MUTATE, EV_UNDO, EV_REGROW,
        EV_ROOT, EV_FX, EV_EDIT, EV_LOAD, EV_APPLY, EV_OPTION };
 /* the editor's operations (EV_EDIT: a = step, b = op | value << 8) */
-enum { ED_NOTE, ED_GATE, ED_ACC, ED_SLIDE, ED_OCT, ED_SEMI };
+enum { ED_NOTE, ED_GATE, ED_ACC, ED_SLIDE, ED_OCT, ED_SEMI, ED_ARTIC };
 #define QN 64u
 static uint32_t q[QN];
 static volatile uint32_t q_w, q_r;
@@ -626,6 +633,15 @@ static void seq_edit(int step, int op, int val)
     } else if (op == ED_SLIDE) {
         if (g.gate[step] && !g.tie[step])
             g.slide[step] = (uint8_t)!g.slide[step];
+    } else if (op == ED_ARTIC) {                   /* K3: none -> ACC -> SLIDE -> ACC + SLIDE (no wrap) */
+        int a = (g.accent[step] ? 1 : 0) | (g.slide[step] ? 2 : 0);
+        if (!g.gate[step] || g.tie[step])
+            return;
+        a += val ? 1 : -1;
+        if (a < 0 || a > 3)
+            return;
+        g.accent[step] = (uint8_t)(a & 1);
+        g.slide[step] = (uint8_t)(a >> 1);
     } else if (op == ED_OCT) {
         o = g.oct[step] + (val ? 1 : -1);
         g.oct[step] = (int8_t)(o < -2 ? -2 : o > 2 ? 2 : o);
@@ -756,7 +772,9 @@ void app_render(int32_t *lr, uint32_t n, uint32_t master_q12)
         } else if (kind == EV_OPTION)            /* OPTIONS: a fine-tuning choice into the voice */
             at_option(&voice, (int)a, (int)b);
         else if (kind == EV_LOAD && a < NPRESETS && presets[a].used) {
-            if (sq.running && sq.started)
+            if (b)                             /* SEL or a key in the list: at once, running or not */
+                pend_preset = -1;
+            if (sq.running && sq.started && !b)
                 pend_preset = (int8_t)a;       /* on at the end of the pattern */
             else
                 preset_apply((int)a);
@@ -1030,7 +1048,6 @@ static struct {
     uint8_t redraw;
     uint8_t loaded_seen;
     uint8_t oct_hold, oct_used;                /* OCT- held, and used in a combination meanwhile (+ HOME, + K4) */
-    float page_pos;                            /* K4 in the editor: where the knob is over the pages, 0..1 */
     uint8_t opts, opt_cur, opt_dirty;          /* the OPTIONS menu: up, its item, changed (saved as it closes) */
 } ui;
 
@@ -1103,8 +1120,8 @@ static void knob_text(int k, char *b)
         int_text((int32_t)(400.0f + 80.0f * x + 0.5f), t);
         text_cat(b, t);
         text_cat(b, " HZ");
-    } else if (k == AT_WAVE)
-        text_cat(b, x >= 0.5f ? "SQUARE" : "SAW");
+    } else if (k == AT_WAVE)                   /* the oscillator list: SAW, the combinations, SQUARE */
+        text_cat(b, AT_OSC_NAME[at_osc_index(x)]);
     else if (k == AT_ENVMOD)
         pct_text(x * x * x, b);
     else if (k == K_STEPS)
@@ -1168,7 +1185,13 @@ static void knob_turn(int k, int32_t det)
     float step = det > 1 || det < -1 ? 0.02f : 0.01f;
     if (k >= 0 && k < AT_NPARAMS) {
         float x = set.param[k];
-        x = k == AT_WAVE ? (det > 0 ? 1.0f : 0.0f) : fm_clampf(x + (float)det * step, 0.0f, 1.0f);
+        if (k == AT_WAVE) {                    /* one entry of the list a detent */
+            int i = at_osc_index(x) + (det > 0 ? 1 : -1);
+            if (i < 0 || i >= AT_NOSC)
+                return;
+            x = (float)i / (float)(AT_NOSC - 1);
+        } else
+            x = fm_clampf(x + (float)det * step, 0.0f, 1.0f);
         if (x == set.param[k])
             return;
         set.param[k] = x;
@@ -1311,6 +1334,20 @@ static void preset_step(int32_t d)
     ui.list_until = plat_ms() + 6000u;
     ui.redraw = 1;
 }
+/* in the list, SEL or a white key: the preset loads at once (running too, without waiting for the pattern's end) */
+static const uint8_t WHITE_KEY[16] = PLAT_WHITE_KEYS;
+static int list_half(void) { return ui.list_cur >= 16 ? 16 : 0; }   /* the white keys: presets 1..16 or 17..32 */
+static void preset_load_now(int c)
+{
+    ui.list_cur = (int8_t)c;
+    ui.list_until = plat_ms() + 6000u;
+    ui.del_t = 0;
+    if (presets[c].used)
+        post(EV_LOAD, (uint32_t)c, 1);
+    else
+        app_say("EMPTY", "");
+    ui.redraw = 1;
+}
 static void preset_delete(int slot)
 {
     int bank = slot / PRESETS_PER_OBJ;
@@ -1329,35 +1366,11 @@ static void preset_delete(int slot)
 }
 
 static int32_t view_base(void);
-/* the editor: SELECT moves over the 16 steps of the page (wrapping inside it, up to the pattern's end); K4 the page */
+/* the editor: SELECT moves the cursor over the whole pattern (wrapping at its end); the page on view follows it */
 static void edit_move(int32_t d)
 {
-    int32_t len = seq_len(), base = ui.cursor / 16 * 16, n = len - base < 16 ? len - base : 16, c;
-    if (n < 1) {
-        ui.cursor = 0;
-        return;
-    }
-    c = ((int32_t)ui.cursor - base + d) % n;
-    ui.cursor = (uint8_t)(base + (c < 0 ? c + n : c));
-}
-/* K4 as a knob over the pages: its whole travel (0..1 as every knob's: 0.01 a detent, 0.02 turned fast) shared out
- * between them, so a page is some 25 detents with four, not one */
-static void edit_page_sync(void)               /* the knob in the middle of the cursor's page */
-{
-    int32_t pages = (seq_len() + 15) / 16;
-    ui.page_pos = ((float)(ui.cursor / 16) + 0.5f) / (float)pages;
-}
-static void edit_page(int32_t d)
-{
-    int32_t len = seq_len(), pages = (len + 15) / 16, pg, c;
-    ui.page_pos = fm_clampf(ui.page_pos + (float)d * (d > 1 || d < -1 ? 0.02f : 0.01f), 0.0f, 1.0f);
-    pg = (int32_t)(ui.page_pos * (float)pages);
-    if (pg >= pages)
-        pg = pages - 1;
-    if (pg == ui.cursor / 16)
-        return;
-    c = pg * 16 + ui.cursor % 16;
-    ui.cursor = (uint8_t)(c < len ? c : len - 1);
+    int32_t len = seq_len(), c = ((int32_t)ui.cursor + d) % len;
+    ui.cursor = (uint8_t)(c < 0 ? c + len : c);
 }
 /* ------------------------------------------------------------ OPTIONS --- */
 static const char *const OPT_LABEL[OP_N] = {"COLOR", "MIDI IN CH", "MIDI OUT CH", "SEQ NOTES OUT", "CLOCK OUT",
@@ -1434,6 +1447,13 @@ static void input(void)
     for (k = 0; k < NKEYS; k++) {
         uint32_t bit = 1u << k;
         int32_t note = 53 + (int32_t)k + 12 * set.octave;
+        if (ui.list && (keys & bit) && !(ui.keys & bit)) {   /* the list: a white key is a preset (1..16 or 17..32) */
+            int w;
+            for (w = 0; w < 16; w++)
+                if (WHITE_KEY[w] == k)
+                    preset_load_now(list_half() + w);
+            continue;                          /* (its release: a note off for nothing, harmless) */
+        }
         if ((keys & bit) && !(ui.keys & bit)) {
             uint32_t v = touch_vel(k);
             if (ui.edit) {                     /* the editor: the key is the step's note; on to the next step */
@@ -1489,6 +1509,10 @@ static void input(void)
                 opt_close();
             continue;
         }
+        if (ui.list && k == B_SEL) {           /* SEL: the one under the cursor, at once */
+            preset_load_now(ui.list_cur);
+            continue;
+        }
         if (ui.list && k == B_ENV) {           /* delete: twice, within two seconds */
             int c = ui.list_cur;
             ui.list_until = plat_ms() + 6000u;
@@ -1516,14 +1540,28 @@ static void input(void)
             set_dirty = 1;
             ui.redraw = 1;
         }
-        else if (k == B_SEQ) {
+        else if (k == B_SEQ && ui.oct_hold) {  /* OCT- + SEQ: LOCK (GENERATE mutates instead of a new seed) */
+            ui.oct_used = 1;
+            set.locked = (uint8_t)!set.locked;
+            set_dirty = 1;
+            app_say("LOCK", set.locked ? "ON: MUTATE" : "OFF: NEW SEED");
+        } else if (k == B_SEQ) {
             post(EV_GENERATE, 0, 0);
             set_dirty = 1;
-        } else if (k == B_EDIT) {
-            ui.edit = (uint8_t)!ui.edit;
-            if (ui.cursor >= seq_len())
-                ui.cursor = 0;
-            edit_page_sync();
+        } else if (k == B_EDIT) {              /* the sequence's three: the editor -> SEQ -> PATT -> the editor */
+            if (ui.edit) {
+                ui.edit = 0;
+                set.page = 3u;
+                set_dirty = 1;
+            } else if (set.page == 3u && !ui.list) {
+                set.page = 2u;
+                set_dirty = 1;
+            } else {
+                ui.edit = 1;
+                ui.list = 0;
+                if (ui.cursor >= seq_len())
+                    ui.cursor = 0;
+            }
             ui.redraw = 1;
         } else if (ui.edit && (k == B_ENV || k == B_LFO)) {
             post(EV_EDIT, ui.cursor, k == B_ENV ? ED_ACC : ED_SLIDE);
@@ -1532,7 +1570,7 @@ static void input(void)
             post(EV_MUTATE, k == B_ENV ? ACID_MUT_TIME : k == B_LFO ? ACID_MUT_PITCH : ACID_MUT_ARTICULATION,
                  (uint32_t)view_base());       /* the page on view */
             set_dirty = 1;
-        } else if (k == B_HOME && ui.oct_hold) {   /* OCT- + HOME: OPTIONS */
+        } else if (k == B_GLO || (k == B_HOME && ui.oct_hold)) {   /* GLOBAL (or OCT- + HOME): OPTIONS */
             ui.oct_used = 1;
             ui.opts = 1;
             ui.edit = ui.list = 0;
@@ -1541,11 +1579,7 @@ static void input(void)
             home_pages();
         else if (k == B_REC)
             post(EV_UNDO, 0, 0);
-        else if (k == B_GLO) {
-            set.locked = (uint8_t)!set.locked;
-            set_dirty = 1;
-            app_say("LOCK", set.locked ? "ON: MUTATE" : "OFF: NEW SEED");
-        } else if (k == B_SAVE) {
+        else if (k == B_SAVE) {
             save_open();
             ui.redraw = 1;
         }
@@ -1591,19 +1625,22 @@ static void input(void)
             if (ui.cursor >= set.steps)
                 ui.cursor = (uint8_t)(set.steps - 1);
             ui.oct_used = 1;
-            edit_page_sync();
             set_dirty = 1;
             int_text(set.steps, t);
             app_say("STEPS", t);
         } else if (ui.edit && k == EN_SELECT) {
             edit_move(e);
             ui.redraw = 1;
-        } else if (ui.edit && k == EN_K4) {
-            edit_page(e);
-            ui.redraw = 1;
-        } else if (ui.edit && k >= EN_K1 && k <= EN_K3) {   /* K1 gate, K2 octave, K3 a semitone */
-            post(EV_EDIT, ui.cursor, (uint32_t)(k == EN_K1 ? ED_GATE : k == EN_K2 ? ED_OCT : ED_SEMI) | (e > 0 ? 1u : 0u) << 8);
+        } else if (ui.edit && k >= EN_K1 && k <= EN_K4) {   /* K1 a semitone, K2 octave, K3 ACC / SLIDE, K4 gate */
+            static const uint8_t OP[4] = {ED_SEMI, ED_OCT, ED_ARTIC, ED_GATE};
+            post(EV_EDIT, ui.cursor, (uint32_t)OP[k - EN_K1] | (e > 0 ? 1u : 0u) << 8);
             set_dirty = 1;
+        } else if (k == EN_ALGO) {             /* ALGO: the wave, wherever you are (the VOICE page's WAVE) */
+            char t[24];
+            knob_turn(AT_WAVE, e > 0 ? 1 : -1);
+            t[0] = 0;
+            text_cat(t, AT_OSC_NAME[at_osc_index(set.param[AT_WAVE])]);
+            app_say("WAVE", t);
         } else if (k == EN_SELECT) {
             set.page = (uint8_t)((set.page + (e > 0 ? 1u : NPAGES - 1u)) % NPAGES);
             set_dirty = 1;
@@ -1629,10 +1666,27 @@ static void input(void)
         ui.redraw = 1;
     ui.keys = keys;
     ui.btn = btn;
-    plat_glow(1);
-    plat_leds(btn | (set_dirty ? 1u << B_SAVE : 0u) | (sq.running ? 1u << B_PLAY : 0u)
-                  | (set.locked ? 1u << B_GLO : 0u) | (ui.edit ? 1u << B_EDIT : 0u),
-              keys);
+    {
+        /* lit: SAVE with changes, PLAY, SEQ with LOCK on, EDIT in the editor, GLOBAL in OPTIONS, SEL in the list.
+         * In the list the white keys are its presets: the one loaded lit, the saved ones at the mid level */
+        uint32_t b = btn | (set_dirty ? 1u << B_SAVE : 0u) | (sq.running ? 1u << B_PLAY : 0u)
+                     | (set.locked ? 1u << B_SEQ : 0u) | (ui.edit ? 1u << B_EDIT : 0u)
+                     | (ui.opts ? 1u << B_GLO : 0u) | (ui.list ? 1u << B_SEL : 0u),
+                 kl = keys, km = 0;
+        if (ui.list) {
+            int w, half = list_half();
+            for (w = 0; w < 16; w++) {
+                uint32_t bit = 1u << WHITE_KEY[w];
+                if (half + w == cur_preset)
+                    kl |= bit;
+                else if (presets[half + w].used)
+                    km |= bit;
+            }
+        }
+        plat_glow(1);
+        plat_leds(b, kl);
+        plat_lights_mid(0, km);
+    }
 }
 
 void app_input_only(void) { input(); }
@@ -1802,7 +1856,7 @@ static void draw_editor(void)
                 cv_rect(x, y + 14, ED_W, 1, C_WHITE);
         }
     }
-    cv_text(2, 86, &FONT_T, "SEL STEP  K1 GATE  K2 OCT  K3 NOTE  K4 PAGE", C_DIM);
+    cv_text(2, 86, &FONT_T, "SEL STEP  K1 NOTE  K2 OCT  K3 ACC/SLD  K4 GATE", C_DIM);
     cv_text(2, 97, &FONT_T, "KEY NOTE ENV ACC LFO SLD REC UNDO OCT-+K4 LEN", C_DIM);
     cv_blit(0, 132);
 }
@@ -1835,8 +1889,8 @@ static void draw_list(void)
                 cv_text(40, y + 3, &FONT_XS, "- EMPTY -", C_DIM);
         }
         if (band) {
-            cv_text(4, 84, &FONT_T, "PRESETS MOVE  ENV x2 DELETE  SAVE HERE", C_DIM);
-            cv_text(4, 94, &FONT_T, "HOME CLOSE", C_DIM);
+            cv_text(4, 84, &FONT_T, "PRESETS MOVE  SEL / WHITE KEYS LOAD NOW", C_DIM);
+            cv_text(4, 94, &FONT_T, "ENV x2 DELETE  SAVE HERE  HOME CLOSE", C_DIM);
         }
         cv_blit(0, band ? 116 : 32);
     }
@@ -2157,6 +2211,8 @@ int app_expect(const char *what, int *got)
         *got = ui_accent;
     else if (!strcmp(what, "slide"))
         *got = ui_slide;
+    else if (!strcmp(what, "wave"))           /* the WAVE list's entry, 0 (SAW) .. AT_NOSC - 1 (SQUARE) */
+        *got = at_osc_index(set.param[AT_WAVE]);
     else if (!strcmp(what, "cutoff"))
         *got = (int)(set.param[AT_CUTOFF] * 100.0f + 0.5f);
     else if (!strcmp(what, "running"))

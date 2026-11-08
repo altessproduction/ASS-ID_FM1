@@ -31,7 +31,8 @@
 #pragma once
 #include <stdint.h>
 
-/* the seven controls of the 303, 0..1 each (wave: 0 saw, 1 square) */
+/* the seven controls of the 303, 0..1 each. WAVE picks from the oscillator list (AT_OSC_NAME): 0 is SAW, 1 is SQUARE
+ * and the combinations of the extra layer lie between, at k / (AT_NOSC - 1) */
 enum { AT_TUNING, AT_CUTOFF, AT_RESONANCE, AT_ENVMOD, AT_DECAY, AT_ACCENT, AT_WAVE, AT_NPARAMS };
 
 typedef struct {
@@ -72,6 +73,13 @@ typedef struct {
     /* ATEK oscillator */
     float ph, inc, blend, pw, a_lp_saw, a_lp_sq, a_hp_saw, a_hp_sq;
     float lp_saw, lp_sq, hp_saw_y, hp_saw_x, hp_sq_y, hp_sq_x;
+    /* the extra layer (the VCV module's "Extra layer" menu): off unless layer_on */
+    int layer_on, l_pink;
+    float l_sin, l_sin_ratio, l_other, l_other_norm, l_other_ratio, l_noise, l_ring, l_xmod;
+    float ph2, ph_sin, pink0, pink1, pink2;
+    uint32_t l_rng;
+    uint8_t l_idx[8];                 /* the layer's eight indices into the module's tables */
+    int osc_idx;                      /* the entry of the oscillator list that WAVE picks, -1 before the first */
 
     /* ATEK filter */
     float f_cut, f_res, f_drive, f_b0, f_k, f_gcomp, y1, y2, y3, y4, fb_hp, fb_prev, fb_hp_c;
@@ -84,6 +92,11 @@ typedef struct {
 } at_voice_t;
 
 void at_init(at_voice_t *v, float sr);
+
+/* the oscillator list that WAVE walks: the 303's two waves at the ends and the extra layer's combinations between */
+#define AT_NOSC 14
+extern const char *const AT_OSC_NAME[AT_NOSC];
+int at_osc_index(float wave);                 /* WAVE's value to its entry */
 
 /* the VCV module's "Fine tuning" menu, an option at a time: the index into its choices, as the module has them
  * (the defaults in brackets: what the circuit model sets) */

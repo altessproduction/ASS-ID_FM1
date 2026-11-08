@@ -71,7 +71,7 @@ footer b{color:var(--dim)}
     <h1>ATEK<span>303</span> <span style="color:var(--txt);font-size:.55em;letter-spacing:0">cheat sheet</span></h1>
     <div class="sub">Acid firmware for the <b>M-VAVE FM-1</b> · by Animatek</div>
   </div>
-  <div class="tag"><strong>PRESS PLAY</strong><br>a line plays · turn the knobs · it moves<br>v1.1 · GPL-3.0 · github.com/animatek/FM1-Animatek</div>
+  <div class="tag"><strong>PRESS PLAY</strong><br>a line plays · turn the knobs · it moves<br>v1.2 · GPL-3.0 · github.com/animatek/FM1-Animatek</div>
 </header>
 
 <div class="grid">
@@ -91,20 +91,21 @@ footer b{color:var(--dim)}
   <div class="box">
     <h2 class="amber">Buttons</h2>
     <table>
-      <tr><td><span class="k acid">PLAY</span></td><td>run / stop (internal clock, or MIDI clock)</td></tr>
-      <tr><td><span class="k">SEQ</span></td><td>GENERATE a new pattern (new seed) · playing: at the next bar</td></tr>
-      <tr><td><span class="k">ENV</span></td><td>mutate TIME (rests, notes, ties) · on the page in view</td></tr>
+      <tr><td><span class="k acid">PLAY</span></td><td>run / stop (internal or MIDI clock)</td></tr>
+      <tr><td><span class="k">SEQ</span></td><td>new pattern · playing: at the next bar</td></tr>
+      <tr><td><span class="k">OCT−</span> + <span class="k">SEQ</span></td><td>LOCK: SEQ mutates (SEQ lit)</td></tr>
+      <tr><td><span class="k">ENV</span></td><td>mutate TIME · on the page in view</td></tr>
       <tr><td><span class="k">LFO</span></td><td>mutate NOTES (octaves)</td></tr>
       <tr><td><span class="k">ARP</span></td><td>mutate SLIDES and ACCENTS</td></tr>
       <tr><td><span class="k">REC</span></td><td>undo the last mutation or edit</td></tr>
-      <tr><td><span class="k">GLO</span></td><td>LOCK: SEQ mutates all instead of a new seed</td></tr>
-      <tr><td><span class="k">EDIT</span></td><td>step editor on / off</td></tr>
-      <tr><td><span class="k">HOME</span></td><td>VCF → VOICE → PATT → SEQ; from anywhere else, VCF</td></tr>
-      <tr><td><span class="k">OCT−</span> + <span class="k">HOME</span></td><td>OPTIONS: colour, MIDI channels, seq notes / clock out, fine tuning</td></tr>
+      <tr><td><span class="k">EDIT</span></td><td>editor → SEQ → PATT</td></tr>
+      <tr><td><span class="k">ALGO</span></td><td>WAVE, from any page</td></tr>
+      <tr><td><span class="k">HOME</span></td><td>VCF → VOICE → PATT → SEQ</td></tr>
+      <tr><td><span class="k">GLO</span></td><td>OPTIONS: colour, MIDI, fine tuning</td></tr>
       <tr><td><span class="k">FX</span></td><td>effect pages (again: the next one)</td></tr>
-      <tr><td><span class="k">SAVE</span></td><td>save screen: slot, name, OVERWRITE? NO / YES</td></tr>
+      <tr><td><span class="k">SAVE</span></td><td>save screen: slot, name</td></tr>
       <tr><td><span class="k">OCT−</span> <span class="k">OCT+</span></td><td>octave (OCT− on release)</td></tr>
-      <tr><td>keys</td><td>stopped: play the voice (hard = accent) · running: transpose</td></tr>
+      <tr><td>keys</td><td>stopped: play (hard = accent) · running: transpose</td></tr>
     </table>
   </div>
 </div>
@@ -115,7 +116,7 @@ footer b{color:var(--dim)}
     <h2 class="blue">8 pages · SELECT · K1–K4</h2>
     <div class="pages">
       <div class="page"><div class="t">VCF <span>VOICE 1</span></div><div class="knobs"><div>CUTOFF</div><div>RESO</div><div>ENV MOD</div><div>DECAY</div></div></div>
-      <div class="page"><div class="t">VOICE <span>VOICE 2</span></div><div class="knobs"><div>ACCENT</div><div>TUNE</div><div>WAVE<i>saw/sqr</i></div><div>GATE<i>length</i></div></div></div>
+      <div class="page"><div class="t">VOICE <span>VOICE 2</span></div><div class="knobs"><div>ACCENT</div><div>TUNE</div><div>WAVE<i>14 oscs</i></div><div>GATE<i>length</i></div></div></div>
       <div class="page"><div class="t">PATT <span>PATTERN 1</span></div><div class="knobs"><div>DENSITY</div><div>RANGE</div><div>ACCENTS</div><div>SLIDES</div></div></div>
       <div class="page"><div class="t">SEQ <span>PATTERN 2</span></div><div class="knobs"><div>STEPS<i>1–64</i></div><div>SCALE</div><div>TEMPO</div><div>ROOT</div></div></div>
       <div class="page fx"><div class="t">DELAY <span>FX 1</span></div><div class="knobs"><div>TIME<i>1/16–1/4.</i></div><div>FEEDBACK</div><div>TONE</div><div>MIX</div></div></div>
@@ -130,11 +131,11 @@ footer b{color:var(--dim)}
     <div class="steps"><i class="n"></i><i></i><i class="n"></i><i class="a"></i><i></i><i class="n"></i><i class="t"></i><i></i><i class="n"></i><i class="s"></i><i class="n"></i><i></i><i class="a"></i><i class="n"></i><i class="t"></i><i class="n"></i></div>
     <div class="legend"><span><b style="background:var(--blue)"></b>note</span><span><b style="background:#1E4E9C"></b>tie</span><span><b style="background:#CFE6FF"></b>accent</span><span><b style="background:#00C2FF"></b>slide</span></div>
     <table class="ed" style="margin-top:1.2mm">
-      <tr><td><span class="k">SELECT</span> · <span class="k">K4</span></td><td>step (the 16 of the page) · page 1:4 … 4:4</td></tr>
+      <tr><td><span class="k">SELECT</span></td><td>step (the page follows)</td></tr>
       <tr><td>a key</td><td>sets the step's note and moves on</td></tr>
-      <tr><td><span class="k">K1</span> <span class="k">K2</span> <span class="k">K3</span></td><td>gate (REST, NOTE, TIE) · octave (UP/DOWN) · semitone</td></tr><tr><td><span class="k">OCT-</span>+<span class="k">K4</span></td><td>hold OCT− and turn K4: STEPS (1–64)</td></tr>
+      <tr><td><span class="k">K1</span>–<span class="k">K4</span></td><td>semitone · octave · ACC/SLIDE · gate</td></tr><tr><td><span class="k">OCT-</span>+<span class="k">K4</span></td><td>hold OCT− and turn K4: STEPS (1–64)</td></tr>
       <tr><td><span class="k">ENV</span> <span class="k">LFO</span></td><td>toggle ACCENT · toggle SLIDE</td></tr>
-      <tr><td><span class="k">REC</span> · <span class="k">EDIT</span>/<span class="k">HOME</span></td><td>undo · leave the editor</td></tr>
+      <tr><td><span class="k">REC</span> · <span class="k">EDIT</span>/<span class="k">HOME</span></td><td>undo · out to SEQ / to VCF</td></tr>
     </table>
   </div>
 </div>
@@ -144,11 +145,11 @@ footer b{color:var(--dim)}
   <div class="box">
     <h2 class="amber">Presets · 32 slots</h2>
     <p><span class="k">SAVE</span> opens the save screen: <span class="k">PRESETS</span> picks the slot, <span class="k">SELECT</span> a new acid name, <span class="k">SAVE</span> stores everything (pattern, voice, effects, tempo, scale, root); over a used slot it asks OVERWRITE? NO / YES. Any other button cancels.</p>
-    <p>12 factory presets in slots 1–12; a new FM-1 starts on 01. Turn <span class="k">PRESETS</span>: the list opens and loads each preset as the cursor reaches it; while playing it waits for the end of the pattern, like a 303 (<b>NEXT</b>). <span class="k">ENV</span> twice deletes, <span class="k">SAVE</span> saves on that slot, <span class="k">HOME</span> closes (or 6 s untouched).</p>
+    <p>12 factory presets in slots 1–12; a new FM-1 starts on 01. Turn <span class="k">PRESETS</span>: the list opens and loads each preset as the cursor reaches it; playing, at the pattern's end (<b>NEXT</b>). <span class="k">SEL</span> or a white key (presets 1–16 / 17–32) loads at once. <span class="k">ENV</span> twice deletes, <span class="k">SAVE</span> saves on that slot, <span class="k">HOME</span> closes.</p>
   </div>
   <div class="box">
     <h2 class="blue">MIDI</h2>
-    <p>In: stopped, notes play the voice; running, they transpose. Clock, start, stop and continue drive the sequencer. Out (USB): the keys and the sequencer's notes (accent 127); clock out on request. Channels in <span class="k">OPTIONS</span>.</p>
+    <p>In: notes play (stopped) or transpose (running); clock drives the sequencer. Out (USB): the keys and the sequencer's notes (accent 127); clock out on request. Channels in <span class="k">OPTIONS</span>.</p>
     <div class="cc">
       <div><span>74</span>cutoff</div><div><span>71</span>reso</div><div><span>75</span>env mod</div><div><span>76</span>decay</div>
       <div><span>77</span>accent</div><div><span>78</span>tune</div><div><span>79</span>wave</div><div><span>USB</span>audio to PC</div>
@@ -156,8 +157,8 @@ footer b{color:var(--dim)}
   </div>
   <div class="box">
     <h2>Install · leave · rescue</h2>
-    <p>Install from The Firmware Hub (Chrome or Edge), charged battery, cable straight in. It carries the Felucca update loader: any installer can put another firmware or M-VAVE's back.</p>
-    <p>Fails to start twice? It drops to a safe mode (PLAY retries, REC updates). <span class="k">REC</span> held at power-on: the chip's update mode.</p>
+    <p>Install from The Firmware Hub (Chrome or Edge), battery charged, no hub. Any installer can put another firmware or M-VAVE's back.</p>
+    <p>Fails twice at start: safe mode (PLAY retries, REC updates). <span class="k">REC</span> held at power-on: the chip's update mode.</p>
   </div>
 </div>
 </div>

@@ -46,8 +46,12 @@ expect mutations 4
 tap REC
 wait 60
 expect mutations 2
-# LOCK: GENERATE muta las tres capas
-tap GLO
+# LOCK (OCT- + SEQ): GENERATE muta las tres capas; la octava no cambia
+press OCT-
+wait 30
+tap SEQ
+wait 30
+release OCT-
 wait 30
 expect locked 1
 tap SEQ

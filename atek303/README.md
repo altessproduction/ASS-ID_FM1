@@ -4,12 +4,24 @@ La voz del **ATEK303** de VCV Rack (`../../VCV-Rack/ATEK303`) como firmware del 
 sobre **fm1-base**. Primer paso del plan (ver `../docs/05-ideas-animatek.md`): aprender la
 plataforma con un motor que ya es nuestro. Licencia GPL-3.0-or-later, como el ATEK303.
 
+## Estado (2026-11-08): lo que trae la 1.2
+
+- **WAVE es una lista de 14 osciladores**: SAW, SAW+SUB, FAT, DETUNE+SUB, SHINE, METAL, GROWL, BREATH, WILD,
+  OCTAVES, OCT UP, FIFTH UP, SQR+SUB y SQUARE. Son las recetas del ATEK303 de VCV y bajos al estilo del Roland
+  TB-3 (solo los osciladores), con código propio: una capa antes del filtro con seno afinable, la otra onda con
+  salto y desafinado, ruido, ring y cross-mod. SAW y SQUARE en los extremos: los presets de antes suenan igual.
+- **ALGO** elige la onda desde cualquier página.
+- **Editor**: K1 semitono, K2 octava, K3 ACC/SLIDE, K4 gate; SELECT recorre el patrón entero.
+- **EDIT** recorre editor → página SEQ → página PATT; **GLO** abre OPTIONS; LOCK pasa a **OCT− + SEQ**.
+- **Lista de presets**: SEL carga al momento (también sonando) y las 16 teclas blancas son presets.
+- Probado en el FM-1 real el 08/11 (instalación con `--classic`, presets intactos); ocho pruebas del simulador.
+
 ## Estado (2026-11-07): lo que trae la 1.1
 
 - **64 pasos** en cuatro páginas, con el generador v5 de UZZ-VCV-RACK (el mismo patrón que en VCV con la misma
   semilla). SEQ en marcha entra en el siguiente compás; un preset, al acabar el patrón (NEXT en ámbar).
 - **Editor por páginas**: SELECT los 16 pasos de la página, K4 la página, K1 gate, K2 octava, K3 semitono,
-  OCT− + K4 la longitud.
+  OCT− + K4 la longitud (en la 1.2 cambian los mandos, ver arriba).
 - **12 presets de fábrica de Javier** (`app/factory_presets.h`, de su copia por USB); un FM-1 nuevo arranca en el 01.
   Pantalla de guardar con OVERWRITE? NO / YES. Copia y restauración por USB (`fm1_backup.py --magic AT64`).
 - **OPTIONS** (OCT− + HOME): color, canales MIDI, notas del secuenciador y reloj por USB, y el ajuste fino del
@@ -93,11 +105,13 @@ hace la voz). La resolución es de 32 muestras (0,7 ms).
 | | |
 | --- | --- |
 | PLAY | arranca o para (reloj interno; con reloj MIDI, lo sigue: start, stop, continue, 6 ticks por paso) |
-| SEQ | GENERATE: semilla nueva. Con LOCK, muta las tres capas. Sonando, **espera al siguiente compás** (16 pasos; NEXT en ámbar mientras) |
+| SEQ | GENERATE: semilla nueva. **OCT− + SEQ** activa o quita LOCK (SEQ encendido mientras). Con LOCK, muta las tres capas. Sonando, **espera al siguiente compás** (16 pasos; NEXT en ámbar mientras) |
 | ENV / LFO / ARP | muta TIEMPO / NOTAS (octavas) / SLIDES y ACENTOS, **en la página de 16 pasos a la vista** (al momento) |
 | HOME | recorre las páginas de sonido: VCF, VOICE, PATT, SEQ; desde el editor, la lista o un efecto, directo a VCF |
 | REC | deshace la última mutación o edición |
-| GLO | LOCK |
+| GLO | **OPTIONS** (color, MIDI, ajuste fino); GLO otra vez, o cualquier botón menos OCT−, las cierra |
+| EDIT | lo de la secuencia, en ciclo: **editor → página SEQ → página PATT → editor** |
+| ALGO | **WAVE** desde cualquier página: SAW, las combinaciones de la capa extra, SQUARE |
 | teclas | parado: tocan la voz. Sonando: **transportan** (la tecla es la nueva raíz, como en un 303) |
 | SELECT | páginas: 1 y 2 la voz (la 2 lleva GATE, la duración de las notas del secuenciador), 3 DENSITY, RANGE, ACCENTS, SLIDES, 4 STEPS (1–64), SCALE, TEMPO, ROOT |
 | SAVE | guarda knobs, patrón, semilla, mutaciones, tempo, raíz y octava |
@@ -142,12 +156,12 @@ CPU en el emulador con todo puesto: alrededor del 60 % de un núcleo sonando (la
 
 **Editor de pasos** (botón EDIT): un piano roll de una octava con las filas UP, DOWN, GATE, ACC y
 SLIDE debajo, como la hoja de patrones del 303 (la idea de Javier, con una captura de un editor de
-referencia). Desde el 2026-11-07, como pidió Javier: **SELECT** mueve el cursor por los 16 pasos de
-la página (y vuelve al primero); **K4** cambia de página repartiendo las que existen en todo su recorrido (unos 25 clics cada una con 4 páginas, como el 0–100 % de cualquier knob: 1:4 … 4:4; la
-cabecera dice «STEP 18  2:4»); **K1** el gate (REST, NOTE, TIE), **K2** la octava (UP / DOWN), **K3**
-la nota de semitono en semitono; **OCT− mantenido + K4** cambia STEPS (1–64) sin salir del editor,
-y OCT− solo baja la octava al soltarlo. Una tecla pone la nota del paso y pasa al siguiente de la
-página (con el secuenciador parado, además suena); ENV el acento y LFO el slide; REC deshace; EDIT o HOME salen. Una nota fuera de la escala pasa la
+referencia). Desde el 2026-11-08, como pidió Javier: **SELECT** mueve el cursor por todo el patrón
+(la página a la vista lo sigue; al final vuelve al paso 1); **K1** la nota de semitono en semitono,
+**K2** la octava (UP / DOWN), **K3** ACC / SLIDE (nada, ACC, SLIDE, los dos), **K4** el gate (REST,
+NOTE, TIE); **OCT− mantenido + K4** cambia STEPS (1–64) sin salir del editor, y OCT− solo baja la
+octava al soltarlo. Una tecla pone la nota del paso y pasa al siguiente (con el secuenciador parado,
+además suena); ENV el acento y LFO el slide; REC deshace; EDIT pasa a la página SEQ (y luego a PATT) y HOME sale a VCF. Una nota fuera de la escala pasa la
 escala a CROMÁTICA sin perder ninguna altura. La edición vuelve al patrón con `acid_import` (el
 `importRendered` del C++; 2.000 patrones van y vuelven sin cambios, `tests/pattern_import.c`).
 **Ojo:** girar DENSITY, RANGE, ACCENTS o SLIDES, o GENERATE, rehacen el patrón desde la semilla y
@@ -215,7 +229,10 @@ semilla y mutaciones), voz, efectos, pasos, escala, raíz, tempo, octava y LOCK.
 - **Encoder PRESETS**: el primer giro abre la **lista de presets** (los 32 huecos, 8 a la vista) en el
   cargado; los siguientes mueven el cursor y cargan el preset que pisan: **parado, al momento;
   en marcha, al acabar el patrón**, como en un 303 (pasa al paso 1 del nuevo; mientras espera, la
-  lista y la cabecera dicen **NEXT** en ámbar). Si se elige otro antes, entra el último. En la lista:
+  lista y la cabecera dicen **NEXT** en ámbar). Si se elige otro antes, entra el último. En la lista
+  (SEL encendido): **SEL** carga el del cursor **al momento**, también sonando; las **16 teclas
+  blancas** son los presets de la mitad del cursor (1–16 o 17–32), con el cargado encendido y los
+  guardados a media luz, y una pulsación lo carga al momento.
   **ENV dos veces** (en 2 s) borra el seleccionado, porque la primera solo avisa; **SAVE** abre la
   pantalla de guardar en ese hueco; **HOME** la cierra. Si no se toca, se cierra sola a los 6 s.
 

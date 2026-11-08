@@ -164,7 +164,8 @@ static void osc_coeffs(at_voice_t *v)
 }
 static void osc_reset(at_voice_t *v)
 {
-    v->ph = 0.0f;
+    v->ph = v->ph2 = v->ph_sin = 0.0f;
+    v->pink0 = v->pink1 = v->pink2 = 0.0f;
     v->lp_saw = v->lp_sq = 0.0f;
     v->hp_saw_y = v->hp_saw_x = v->hp_sq_y = v->hp_sq_x = 0.0f;
 }
@@ -200,6 +201,141 @@ static inline float osc_sample(at_voice_t *v)
     v->hp_sq_y = v->a_hp_sq * (v->hp_sq_y + v->lp_sq - v->hp_sq_x);
     v->hp_sq_x = v->lp_sq;
     return OSC_GAIN * (v->hp_saw_y + v->blend * (v->hp_sq_y - v->hp_saw_y));
+}
+
+/* --------------------------------------------------------- extra layer --- */
+/* The VCV module's AtekOsc layer (src/AtekOsc.hpp in UZZ-VCV-RACK), in float: a sine with its own
+ * pitch, the other wave with its own pitch and detune, white or pink noise, ring mod of the 303 by
+ * the sine (a crossfade) and linear sine FM on the 303's ramp. A function of its own so that with
+ * the layer off the voice runs osc_sample() untouched: the same samples and no extra cost. */
+#define PINK_GAIN 1.35f                        /* the pink's rms up to the white's */
+static inline float white_noise(at_voice_t *v)
+{
+    v->l_rng ^= v->l_rng << 13;
+    v->l_rng ^= v->l_rng >> 17;
+    v->l_rng ^= v->l_rng << 5;
+    return (float)v->l_rng * (2.0f / 4294967295.0f) - 1.0f;
+}
+static inline float pink_noise(at_voice_t *v)  /* Paul Kellet's economy pink */
+{
+    float w = white_noise(v);
+    v->pink0 = 0.99765f * v->pink0 + w * 0.0990460f;
+    v->pink1 = 0.96300f * v->pink1 + w * 0.2965164f;
+    v->pink2 = 0.57000f * v->pink2 + w * 1.0526913f;
+    return 0.25f * (v->pink0 + v->pink1 + v->pink2 + w * 0.1848f);
+}
+static float osc_sample_layer(at_voice_t *v)
+{
+    float saw, sq, t_fall, tb, out, sine = 0.0f, dt = v->inc, dt2, p_saw, p_sq, dt_saw, dt_sq;
+    int sine_on = v->l_sin > 0.0f || v->l_ring > 0.0f || v->l_xmod > 0.0f;
+    int shifted = v->l_other_ratio != 1.0f, square_main = v->blend >= 0.5f;
+    if (sine_on) {
+        float x;
+        v->ph_sin += v->inc * v->l_sin_ratio;
+        if (v->ph_sin >= 1.0f) {               /* one subtraction is enough below +48 st at the top notes */
+            v->ph_sin -= 1.0f;
+            if (v->ph_sin >= 1.0f)
+                v->ph_sin -= fm_floorf(v->ph_sin);
+        }
+        x = v->ph_sin >= 0.5f ? v->ph_sin - 1.0f : v->ph_sin;   /* fm_sin_turns without its floor */
+        sine = fm_sin_pi(x * FM_TWO_PI);
+    }
+    if (v->l_xmod > 0.0f)                      /* limited to Nyquist, as in setFrequency */
+        dt = fm_minf(0.45f, fm_maxf(0.0f, v->inc * (1.0f + v->l_xmod * 4.0f * sine)));
+    v->ph += dt;                               /* dt <= 0.45: one subtraction wraps it */
+    if (v->ph >= 1.0f)
+        v->ph -= 1.0f;
+    p_saw = p_sq = v->ph;
+    dt_saw = dt_sq = dt;
+    if (shifted) {                             /* the other wave on its own phase; the main one never moves */
+        dt2 = fm_minf(dt * v->l_other_ratio, 0.45f);
+        v->ph2 += dt2;
+        if (v->ph2 >= 1.0f)
+            v->ph2 -= 1.0f;
+        if (square_main) {
+            p_saw = v->ph2;
+            dt_saw = dt2;
+        } else {
+            p_sq = v->ph2;
+            dt_sq = dt2;
+        }
+    }
+    saw = 2.0f * p_saw - 1.0f - poly_blep(p_saw, dt_saw);
+    sq = (p_sq < v->pw) ? 1.0f : -1.0f;
+    sq += poly_blep(p_sq, dt_sq);
+    t_fall = p_sq + (1.0f - v->pw);
+    if (t_fall >= 1.0f)
+        t_fall -= 1.0f;
+    sq -= poly_blep(t_fall, dt_sq);
+    v->lp_saw += v->a_lp_saw * (saw - v->lp_saw);
+    v->lp_sq += v->a_lp_sq * (sq - v->lp_sq);
+    v->hp_saw_y = v->a_hp_saw * (v->hp_saw_y + v->lp_saw - v->hp_saw_x);
+    v->hp_saw_x = v->lp_saw;
+    v->hp_sq_y = v->a_hp_sq * (v->hp_sq_y + v->lp_sq - v->hp_sq_x);
+    v->hp_sq_x = v->lp_sq;
+    tb = v->hp_saw_y + v->blend * (v->hp_sq_y - v->hp_saw_y);
+    if (v->l_other > 0.0f) {                   /* both waves share a phase: normalised as if uncorrelated */
+        tb += v->l_other * (v->hp_sq_y + v->blend * (v->hp_saw_y - v->hp_sq_y));
+        tb *= v->l_other_norm;
+    }
+    out = tb;
+    if (sine_on)
+        out = tb + v->l_ring * (tb * sine - tb) + v->l_sin * sine;
+    if (v->l_noise > 0.0f)
+        out += v->l_noise * (v->l_pink ? PINK_GAIN * pink_noise(v) : white_noise(v));
+    return OSC_GAIN * out;
+}
+/* The oscillator list: WAVE's choices. Each the 303's wave (0 saw, 1 square) and the layer's eight indices
+ * (sine level, sine pitch, other wave, its pitch, its detune, noise, ring, cross-mod) into the tables below, the same
+ * as the VCV module's menu. They are the module's recipes and its TB-3-style basses, oscillators only. */
+typedef struct { uint8_t wave, idx[8]; } at_osc_t;
+static const at_osc_t OSC_LIST[AT_NOSC] = {
+    {0, {0, 1, 0, 0, 0, 0, 0, 0}},             /* SAW */
+    {0, {4, 1, 0, 0, 0, 0, 0, 0}},             /* SAW+SUB: the sine an octave down at 50 % */
+    {0, {0, 1, 3, 0, 3, 0, 0, 0}},             /* FAT: both waves, +18 cents */
+    {0, {2, 1, 3, 0, 5, 0, 0, 0}},             /* DETUNE+SUB: both, +40 cents, and the sine an octave down */
+    {0, {3, 6, 0, 0, 0, 0, 0, 0}},             /* SHINE: the sine two octaves up at 25 % */
+    {0, {0, 3, 0, 0, 0, 0, 2, 0}},             /* METAL: ring with the sine a fifth up */
+    {0, {0, 1, 0, 0, 0, 0, 0, 2}},             /* GROWL: sine cross-mod, 8 % */
+    {0, {0, 1, 0, 0, 0, 4, 0, 0}},             /* BREATH: pink noise 10 % */
+    {1, {0, 3, 0, 0, 0, 0, 0, 5}},             /* WILD: cross-mod 100 % with the sine a fifth up */
+    {1, {0, 1, 2, 5, 0, 0, 0, 0}},             /* OCTAVES: the saw three octaves up at 50 % */
+    {1, {0, 1, 3, 2, 0, 0, 0, 0}},             /* OCT UP: the saw an octave up at 100 % */
+    {1, {0, 1, 2, 3, 0, 0, 0, 0}},             /* FIFTH UP: the saw at +19 st, 50 % */
+    {1, {4, 1, 0, 0, 0, 0, 0, 0}},             /* SQR+SUB */
+    {1, {0, 1, 0, 0, 0, 0, 0, 0}},             /* SQUARE */
+};
+const char *const AT_OSC_NAME[AT_NOSC] = {"SAW", "SAW+SUB", "FAT", "DETUNE+SUB", "SHINE", "METAL", "GROWL", "BREATH",
+    "WILD", "OCTAVES", "OCT UP", "FIFTH UP", "SQR+SUB", "SQUARE"};
+int at_osc_index(float wave)
+{
+    int k = (int)(clampf(wave, 0.0f, 1.0f) * (float)(AT_NOSC - 1) + 0.5f);
+    return k < 0 ? 0 : k >= AT_NOSC ? AT_NOSC - 1 : k;
+}
+
+static void layer_apply(at_voice_t *v)          /* the eight indices into the module's tables */
+{
+    static const float SIN_LEVEL[7] = {0.0f, 0.05f, 0.10f, 0.25f, 0.50f, 0.75f, 1.00f};
+    static const float SIN_PITCH[9] = {-24, -12, 0, 7, 12, 19, 24, 36, 48};
+    static const float OTHER[4] = {0.0f, 0.25f, 0.5f, 1.0f};
+    static const float OTHER_PITCH[6] = {0, -12, 12, 19, 24, 36};
+    static const float DETUNE[8] = {0.0f, 5.0f, 10.0f, 18.0f, 25.0f, 40.0f, -10.0f, -25.0f};
+    static const float NOISE[7] = {0.0f, 0.10f, 0.25f, 0.50f, 0.10f, 0.25f, 0.50f};
+    static const float RING[4] = {0.0f, 0.25f, 0.50f, 1.00f};
+    static const float XMOD[6] = {0.0f, 0.02f, 0.08f, 0.25f, 0.50f, 1.00f};
+    const uint8_t *k = v->l_idx;
+    float cents = 100.0f * OTHER_PITCH[k[3]] + DETUNE[k[4]];
+    v->l_sin = SIN_LEVEL[k[0]];
+    v->l_sin_ratio = fm_exp2f(SIN_PITCH[k[1]] * (1.0f / 12.0f));
+    v->l_other = OTHER[k[2]];
+    v->l_other_norm = 1.0f / fm_sqrtf(1.0f + v->l_other * v->l_other);
+    v->l_other_ratio = cents == 0.0f ? 1.0f : fm_exp2f(cents * (1.0f / 1200.0f));
+    v->l_noise = NOISE[k[5]];
+    v->l_pink = k[5] >= 4;
+    v->l_ring = RING[k[6]];
+    v->l_xmod = XMOD[k[7]];
+    v->layer_on = v->l_sin > 0.0f || v->l_other > 0.0f || v->l_other_ratio != 1.0f || v->l_noise > 0.0f
+        || v->l_ring > 0.0f || v->l_xmod > 0.0f;
 }
 
 /* --------------------------------------------------------- ATEK filter --- */
@@ -350,7 +486,16 @@ static void update_params(at_voice_t *v)           /* Atek303::updateParams, eve
     v->normal_decay = decay_tau(v->param[AT_DECAY]);
     v->accent_decay = 200.0f / DECAY_T_OVER_TAU;
     v->accent = 0.01f * effective_accent(v);
-    v->blend = v->param[AT_WAVE];
+    {                                          /* WAVE: an entry of the oscillator list */
+        int k = at_osc_index(v->param[AT_WAVE]), j;
+        if (k != v->osc_idx) {
+            v->osc_idx = k;
+            for (j = 0; j < 8; j++)
+                v->l_idx[j] = OSC_LIST[k].idx[j];
+            layer_apply(v);
+        }
+        v->blend = (float)OSC_LIST[k].wave;
+    }
     /* the drift's random walk, and the bend it gives (integer notes: no quantisation offset) */
     dt = 16.0f / v->sr;
     e = fm_sqrtf(dt) * 0.25f;
@@ -387,6 +532,10 @@ void at_init(at_voice_t *v, float sr)
     v->saw_reset_us = SAW_RESET_US;
     v->saw_droop_hz = SAW_DROOP_HZ;
     v->rng = 0x9E3779B9u;
+    v->l_rng = 0x9E3779B9u;                    /* the VCV layer's noise seed */
+    v->l_idx[1] = 1;                           /* the layer off (its sine pitch at -12, the module's default) */
+    layer_apply(v);
+    v->osc_idx = -1;
     v->held_note = -1;
     v->idle = 1;
     v->pitch_wheel = 1.0f;
@@ -536,7 +685,7 @@ void at_render(at_voice_t *v, float *out, uint32_t n)
         amp_out = bq_rosic(&v->declick, amp_out);
         /* oversampled: oscillator, pre-filter highpass, the ladder, anti-aliasing */
         for (j = 0; j < OS; j++) {
-            s = -osc_sample(v);
+            s = v->layer_on ? -osc_sample_layer(v) : -osc_sample(v);
             s = op_run(&v->hp1, s);
             s = filt_sample(v, s);
             s = aa_run(v->aa, s);
