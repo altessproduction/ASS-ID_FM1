@@ -6,15 +6,17 @@
     python3 tools/factory_from_backup.py BACKUP [--drop SLOT ...] [-o app/factory_presets.h]
 
 BACKUP is either
-  - a backup taken over USB with fm1-base's tools/fm1_backup.py (the FM-1 with ATEK303, stopped):
-        python3 base/tools/fm1_backup.py backup mis-presets.bak --magic AT64
+  - a backup taken over USB with fm1-base's tools/fm1_backup.py (the FM-1 with ATEK303 1.3, stopped):
+        python3 base/tools/fm1_backup.py backup mis-presets.bak --magic DR64
   - or a 1 MiB flash image: the simulator's "flash_dump FILE", or a whole FM-1 read with fm1_unbrick.py.
 
 What goes in: the four preset banks (OBJ_PRESETS_A..D: 8 presets each, the 32 slots as they are on the FM-1, deleted
 ones included as empty) and the settings (OBJ_SETTINGS: the state the FM-1 was in, which a fresh FM-1 starts with).
 The firmware takes them only where the store has nothing (a fresh FM-1, or after "wipe"): a unit with presets of its
-own keeps them. The layout has to be the firmware's (its SET_MAGIC, AT64): the firmware checks every preset and drops
-any from another layout, so rebuild the header after a change of the settings' layout.
+own keeps them. The layout has to be the firmware's (its SET_MAGIC, DR64, the 1.3 preset format with the drum track):
+the firmware checks every preset and drops any from another layout, so rebuild the header after a change of the
+settings' layout. (The 1.2's backups, magic AT64, are another layout: the old header lives in
+app/factory_presets.h.at64.bak.)
 
 Then ./build.sh (and --web): the header is picked up by app.c (__has_include). Delete it to go back to the table of 8
 in app.c.
@@ -27,8 +29,8 @@ from pathlib import Path
 
 OBJ_SETTINGS, OBJ_PANEL, OBJ_PRESETS_A = 0, 1, 2
 NBANKS = 4
-MAGIC = b"AT64"
-SET_MAGIC = 0x41543634                     # app.c SET_MAGIC: the settings' first word
+MAGIC = b"DR64"
+SET_MAGIC = 0x44523634                     # app.c SET_MAGIC ("DR64", the 1.3 layout): the packed preset's first word
 ST_MAGIC = 0x30583058                      # fm1-base device/storage.c: "X0X0"
 STORE_MAP = {OBJ_SETTINGS: 0xFC000, OBJ_PANEL: 0xDC000, 2: 0xD8000, 3: 0xDA000, 4: 0xD4000, 5: 0xD6000}   # app.h
 

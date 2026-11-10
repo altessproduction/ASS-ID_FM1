@@ -4,6 +4,49 @@ La voz del **ATEK303** de VCV Rack (`../../VCV-Rack/ATEK303`) como firmware del 
 sobre **fm1-base**. Primer paso del plan (ver `../docs/05-ideas-animatek.md`): aprender la
 plataforma con un motor que ya es nuestro. Licencia GPL-3.0-or-later, como el ATEK303.
 
+## Estado (2026-11-10): lo que trae la 1.3, la piste drum
+
+*(en français, ajouté par la demande « une piste drum (808, 707, 909) sur le même principe que la 303 » ; la
+version espagnole suivra quand Javier l'aura écoutée.)*
+
+- **Huit voix de percussion synthétisées** (`app/dsp/drum_voice.c`, tout en C float, sans libm, sans
+  samples) : KICK (sine à chute de pitch + click), SNARE (deux corps + bruit filtré), CLAP (bruit
+  filtré, trois pré-échecs et la queue), HAT C / HAT O (les six carrés métalliques du 808, ou du
+  bruit filtré en 909/707 ; le fermé étrangle toujours l'ouvert), TOM L / TOM H (sine à chute),
+  COWBELL (deux carrés 540/800 Hz ; **RIMSHOT** sur le kit 707). Un knob **KIT** (808 / 909 / 707)
+  change la saveur des huit. Chaque voix a LEVEL / TUNE / DECAY, sur la page **DVOX** (PART choisit
+  la voix ; les touches l'écoutent, une pression forte est un accent).
+- **Séquenceur de 64 pas** (`app/dsp/drum_pattern.c`, un bit de coup et un d'accent par voix et par
+  pas) sur **l'horloge du 303** : PLAY, tempo et reloj MIDI sont communs. **Générateur à semée**
+  (page **DGEN** : DENSITY, ACCENTS, FILL, STEPS 1-64), le même principe que le SEQ : même semée,
+  même groove ; les knobs refont pousser le pattern de la même semée ; **ENV / LFO / ARP** mutent le
+  BACKBONE (kick, snare, clap) / les TOPS (hats, toms, cowbell) / les ACCENTS sur la page affichée ;
+  **LOCK** (OCT− + SEQ) mute les trois couches au lieu d'une semée nouvelle ; **REC** défait la
+  dernière mutation ou édition, du 303 ou des drums (le dernier touché) ; en marche, GENERATE attend
+  le prochain compas (NEXT en ambre).
+- **Matrice 8×16** (EDIT depuis une page drum, ou EDIT cycle : matrice → DGEN → DVOX) : SELECT le
+  pas, K1 la voix (la rangée), K2 l'accent, K3 décale la rangée d'un pas, K4 le coup, LFO vide la
+  rangée, une touche pose/enlève le coup et passe au suivant (et l'écoute, parado) ; OCT− + K4 la
+  longueur. À l'écran, la colonne qui joue est marquée.
+- **SWING** (page **KIT**, 50 % droit … 75 % triplet : les contretemps des croches attendent jusqu'à
+  un tiers de double-croche) et **D-LVL** (le bus drum dans les effets, avec le 303) et **ACC AMT**.
+  **MUTE** du drum track : **OCT+ tenu + SEQ** (OCT+ seul, en l'air, fait toujours l'octave).
+- Les pages drum sont les **8-10** (DVOX, DGEN, DKIT), par SELECT ; HOME et FX inchangés. Le bas
+  d'écran garde la tirette du 303 (les deux pistes tournent ensemble).
+- **Presets « DR64 »** : avec les drums, un preset ne tenait pas dans le huitième d'objet de la
+  mémoire (480 octets) : il voyage **compacté** (knobs en octets, pattern 303 bit-packé : 2 bits de
+  temps et 9 de hauteur par pas) en 320 octets. Les presets AT64 de la 1.2 ne se chargent pas (les
+  32 slots repartent des 8 d'usine, chacun avec son groove drum) ; `app/factory_presets.h` (le format
+  AT64) est renommé `factory_presets.h.at64.bak` — refaites-le depuis une sauvegarde DR64 avec
+  `tools/factory_from_backup.py` (à jour) quand les presets seront faits sur le FM-1. Sauvegarde USB
+  : `fm1_backup.py --magic DR64`.
+- Vérifié : les **huit tests de la 1.2 passent**, nouveau `app/tests/drums.txt` (63 vérifications) et
+  `tests/drum_render.c` (79 : les 24 voix sonnent et meurent, l'accent est plus fort, pas de NaN,
+  même semée = même pattern). Écrans vérifiés à la capture. CPU des drums non mesuré dans l'émulateur
+  (pas compilé ici) ; le moteur ne rend que les voix qui sonnent, à comparer avec le 42 % du 303.
+- Ce que la 1.3 ne fait pas : MIDI des drums (ni notes canal 10 qui les jouent, ni notes du
+  séquenceur drum en sortie), pas d'enregistrement temps réel, pas de piste drum double.
+
 ## Estado (2026-11-08): lo que trae la 1.2
 
 - **WAVE es una lista de 14 osciladores**: SAW, SAW+SUB, FAT, DETUNE+SUB, SHINE, METAL, GROWL, BREATH, WILD,

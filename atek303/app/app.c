@@ -2,9 +2,31 @@
  * Copyright (C) 2026 Javier (Animatek)
  * Built on fm1-base's template (MPL-2.0, Charles Vestal).
  *
- * ATEK303 on the FM-1: the ATEK303 voice and the ATEK303 SEQ's acid pattern generator.
+ * ATEK303 on the FM-1: the ATEK303 voice and the ATEK303 SEQ's acid pattern generator, and (1.3)
+ * the drum track: eight TR-808/909/707 voices with their own sequencer, on the same clock, the
+ * same principle. The drum track's pages (SELECT walks there: DVOX, DGEN, KIT) give the buttons
+ * to the drums:
  *
- *   PLAY            the sequencer runs / stops (internal clock, or MIDI clock when it comes in)
+ *   SEQ             GENERATE the drum pattern (a new seed). With LOCK on: mutate its three layers.
+ *                   Running: at the next bar (16 steps; NEXT until then)
+ *   ENV / LFO / ARP mutate the drums' BACKBONE (kick, snare, clap) / TOPS (hats, toms, cowbell) /
+ *                   ACCENTS, on the page of 16 steps on view
+ *   EDIT            the drum matrix (8 rows x 16 steps). EDIT goes round: the matrix -> the DGEN
+ *                   page -> the DVOX page -> the matrix.
+ *                     SELECT moves the cursor's step (the page follows); K1 the row (the part);
+ *                     K2 (and ENV) its ACCENT; K3 shifts the row a step; K4 (and a key) the hit;
+ *                     LFO clears the row; OCT- held + K4 the drum pattern's STEPS; REC undoes.
+ *                     A key sounds the row's voice stopped, and toggles its step, moving on
+ *   OCT- / OCT+     the octave. OCT+ held + SEQ: the drum track MUTE (off or on)
+ *   keys            on the drum pages: they sound the selected part (a hard press is an accent)
+ *
+ * The drums run on the 303's clock and tempo, with their own length (the DGEN page's STEPS) and
+ * swing (the KIT page's SWING: the offbeat 16ths, 50 % straight to 75 % triplet). A closed hat
+ * always chokes an open one. The drum bus joins the 303 before the effects (the D-LVL knob),
+ * everything through the same drive, delay and reverb.
+ *
+ *   PLAY            the sequencer runs / stops (internal clock, or MIDI clock when it comes in;
+ *                   both tracks, always together)
  *   SEQ             GENERATE: a new pattern (a new seed). With LOCK on: mutate all three layers. Running:
  *                   at the next bar (16 steps; NEXT until then)
  *   ENV / LFO / ARP mutate TIME / NOTES (octaves) / SLIDES and ACCENTS, on the page of 16 steps on view
@@ -58,6 +80,8 @@
 #include "atek_voice.h"
 #include "acid_pattern.h"
 #include "fx.h"
+#include "drum_voice.h"
+#include "drum_pattern.h"
 
 /* the Animatek palette, as on the VCV Rack modules (UZZ-VCV-RACK src/ui/CommonWidgets.hpp, AcidEditor.hpp):
  * the screens are slate, the values in the displays' blue, the selection in the logo's blue */
@@ -109,13 +133,16 @@ static void theme_apply(int i)                 /* over fm1-base's palette (gfx.c
     c_octave = t->sec;
 }
 
-#define SET_MAGIC 0x41543634u                  /* "AT64" (64 steps): another magic loads the defaults */
+#define SET_MAGIC 0x44523634u                  /* "DR64" (the drum track's 64 steps, 1.3): another magic loads
+                                                * the defaults, so the AT64 settings of the 1.2 do not load */
 #define ACCENT_VEL 100u
 #define SR 44100.0f
 #define CHUNK 32u                              /* the sequencer's resolution: 0.7 ms */
 
 /* the sequencer's knobs, beside the voice's (0..1 like them, or a count) */
 enum { SQ_DENSITY, SQ_RANGE, SQ_ACCENT, SQ_SLIDE, SQ_GATE, SQ_NKNOBS };
+/* the drum track's generation knobs (0..1) */
+enum { DK_DENSITY, DK_ACCENT, DK_FILL, DK_NKNOBS };
 
 typedef struct {
     uint32_t magic;
@@ -131,25 +158,216 @@ typedef struct {
     uint32_t mutation_counter;
     acid_pattern_t pattern;
     float fx[FX_NPARAMS];                      /* the effects: knobs 0..1, types and TIME as indices */
+    /* the drum track (1.3) */
+    drum_pattern_t dpat;
+    uint32_t dmutation_counter;
+    float dknobs[DK_NKNOBS];                   /* density, accent, fill */
+    float dpar[DR_NPARTS][DR_NPAR];            /* level, tune, decay of every part */
+    float dswing;                              /* 0..1: the offbeat from 50 % (straight) to 75 % (triplet) */
+    float daccamt;                             /* what an accent opens */
+    float dlvl;                                /* the drum bus into the effects */
+    uint8_t dkit;                              /* 0 808, 1 909, 2 707 */
+    uint8_t dlen;                              /* the drum pattern's length, 1..64 */
+    uint8_t dmuting;                           /* the drum track silent */
+    uint8_t dpage;                             /* the selected part (the DVOX page's PART) */
 } settings_t;
 static settings_t set;
 static uint8_t set_dirty;
 static volatile uint8_t backup_hold;           /* a backup streams over USB: SAVE waits */
 
 /* ------------------------------------------------------------------ presets --- */
-/* 32 presets, 8 to a store object (4 objects; with 64 steps a preset is about 470 bytes, of the 480 an eighth
- * of an object leaves: checked below). A preset is the
- * whole settings record and a name; the page it was saved on is not restored. */
+/* 32 presets, 8 to a store object (4 objects). A preset is the whole settings record and a name,
+ * the page it was saved on not restored; in the store it travels packed: every knob as a byte,
+ * the 303's pattern bit-packed (2 bits of time and 9 of pitch a step), the drums' bits as they
+ * are. With the drums a whole settings record is some 730 bytes, of the 480 a slot of the object
+ * leaves: packed, some 310. The packed form is 320 bytes, so 8 of them (336 with name and used)
+ * fit an object with room. Its magic is the settings': another one drops the preset. */
 #define NPRESETS 32
 #define PRESETS_PER_OBJ 8
+#define PRESET_BYTES 320u
 typedef struct {
     char name[15];
     uint8_t used;
-    settings_t s;
+    uint8_t b[PRESET_BYTES];
 } preset_t;
 static preset_t presets[NPRESETS];
 typedef char preset_fits[sizeof(preset_t) * PRESETS_PER_OBJ <= PLAT_STORE_MAX ? 1 : -1];
 static int8_t cur_preset = -1;                 /* the one loaded (or saved) last, -1 none */
+static int settings_ok(const settings_t *t);   /* below; the unpack validates with it */
+
+/* the packing: little-endian bytes, the floats 0..1 as a byte at 1/255 (a knob's ear does not
+ * hear the difference), the patterns' bits as they are */
+static void pk8(uint8_t *d, uint32_t *o, uint32_t v) { d[(*o)++] = (uint8_t)v; }
+static void pk16(uint8_t *d, uint32_t *o, uint32_t v) { d[(*o)++] = (uint8_t)v; d[(*o)++] = (uint8_t)(v >> 8); }
+static void pk32(uint8_t *d, uint32_t *o, uint32_t v) { pk16(d, o, v & 0xFFFFu); pk16(d, o, v >> 16); }
+static void pkf(uint8_t *d, uint32_t *o, float x)
+{
+    int32_t q = (int32_t)(x * 255.0f + 0.5f);
+    if (q < 0)
+        q = 0;
+    if (q > 255)
+        q = 255;
+    pk8(d, o, (uint32_t)q);
+}
+static uint32_t up8(const uint8_t *d, uint32_t *o) { return d[(*o)++]; }
+static uint32_t up16(const uint8_t *d, uint32_t *o) { uint32_t v = d[(*o)++]; return v | (uint32_t)d[(*o)++] << 8; }
+static uint32_t up32(const uint8_t *d, uint32_t *o) { uint32_t v = up16(d, o); return v | up16(d, o) << 16; }
+static float upf(const uint8_t *d, uint32_t *o) { return (float)up8(d, o) * (1.0f / 255.0f); }
+static void bits_put(uint8_t *base, uint32_t *bit, uint32_t v, int n)
+{
+    while (n--) {
+        if (v >> n & 1u)
+            base[*bit >> 3] |= (uint8_t)(0x80u >> (*bit & 7));
+        (*bit)++;
+    }
+}
+static uint32_t bits_get(const uint8_t *base, uint32_t *bit, int n)
+{
+    uint32_t v = 0;
+    while (n--) {
+        v = v << 1 | (base[*bit >> 3] >> (7 - (*bit & 7)) & 1u);
+        (*bit)++;
+    }
+    return v;
+}
+/* the acid pattern in 95 bytes: its head, then the time (2 bits a step) and the pitch (4 of
+ * degree, 3 of octave, 1 of accent, 1 of slide) */
+#define ACID_PACK_BYTES 95u
+static uint32_t pack_acid(uint8_t *d, const acid_pattern_t *p)
+{
+    uint32_t o = 0, bit = 0, i;
+    pk32(d, &o, p->seed);
+    pk8(d, &o, p->algorithm_version);
+    pk8(d, &o, p->time_length);
+    pk8(d, &o, p->pitch_length);
+    for (i = 0; i < ACID_PACK_BYTES - 7u; i++)
+        pk8(d, &o, 0);
+    for (i = 0; i < ACID_MAX_STEPS; i++)
+        bits_put(d + 7, &bit, p->time[i] & 3u, 2);
+    for (i = 0; i < ACID_MAX_STEPS; i++) {
+        int deg = p->pitch[i].degree, oct = p->pitch[i].octave;
+        if (deg < 0)
+            deg = 0;
+        if (deg > 15)
+            deg = 15;
+        if (oct < -2)
+            oct = -2;
+        if (oct > 2)
+            oct = 2;
+        bits_put(d + 7, &bit, (uint32_t)deg, 4);
+        bits_put(d + 7, &bit, (uint32_t)(oct + 2), 3);
+        bits_put(d + 7, &bit, p->pitch[i].accent ? 1u : 0u, 1);
+        bits_put(d + 7, &bit, p->pitch[i].slide_out ? 1u : 0u, 1);
+    }
+    return o;
+}
+static void unpack_acid(acid_pattern_t *p, const uint8_t *d)
+{
+    uint32_t o = 0, bit = 0, i;
+    p->seed = up32(d, &o);
+    p->algorithm_version = (uint8_t)up8(d, &o);
+    p->time_length = (uint8_t)up8(d, &o);
+    p->pitch_length = (uint8_t)up8(d, &o);
+    for (i = 0; i < ACID_MAX_STEPS; i++) {
+        uint32_t t = bits_get(d + 7, &bit, 2);
+        if (t > 2u)
+            t = 0;                             /* a bit pattern from nowhere is a rest */
+        p->time[i] = (uint8_t)t;
+    }
+    for (i = 0; i < ACID_MAX_STEPS; i++) {
+        p->pitch[i].degree = (int8_t)bits_get(d + 7, &bit, 4);
+        p->pitch[i].octave = (int8_t)bits_get(d + 7, &bit, 3) - 2;
+        p->pitch[i].accent = (uint8_t)bits_get(d + 7, &bit, 1);
+        p->pitch[i].slide_out = (uint8_t)bits_get(d + 7, &bit, 1);
+    }
+}
+static void preset_pack(uint8_t *d, const settings_t *s)
+{
+    uint32_t o = 0, i;
+    pk32(d, &o, SET_MAGIC);
+    for (i = 0; i < AT_NPARAMS; i++)
+        pkf(d, &o, s->param[i]);
+    for (i = 0; i < SQ_NKNOBS; i++)
+        pkf(d, &o, s->seqk[i]);
+    pk8(d, &o, (uint32_t)(s->octave + 2));
+    pk8(d, &o, s->page);
+    pk8(d, &o, s->steps);
+    pk8(d, &o, s->scale);
+    pk8(d, &o, s->root);
+    pk8(d, &o, s->locked);
+    pk16(d, &o, s->tempo);
+    pk32(d, &o, s->mutation_counter);
+    o += pack_acid(d + o, &s->pattern);
+    for (i = 0; i < FX_NPARAMS; i++)         /* the types and TIME are indexes, not 0..1: raw bytes */
+        if (i == FX_DRIVE_TYPE || i == FX_MOD_TYPE || i == FX_DLY_TIME)
+            pk8(d, &o, (uint32_t)s->fx[i]);
+        else
+            pkf(d, &o, s->fx[i]);
+    pk8(d, &o, s->dkit);
+    pk8(d, &o, s->dlen);
+    pk8(d, &o, s->dmuting);
+    pk8(d, &o, s->dpage);
+    pkf(d, &o, s->dswing);
+    pkf(d, &o, s->daccamt);
+    pkf(d, &o, s->dlvl);
+    for (i = 0; i < DK_NKNOBS; i++)
+        pkf(d, &o, s->dknobs[i]);
+    for (i = 0; i < DR_NPARTS * DR_NPAR; i++)
+        pkf(d, &o, ((const float *)s->dpar)[i]);
+    pk32(d, &o, s->dmutation_counter);
+    pk32(d, &o, s->dpat.seed);
+    for (i = 0; i < DR_NPARTS * DR_STEP_BYTES; i++)
+        pk8(d, &o, s->dpat.gate[i]);
+    for (i = 0; i < DR_NPARTS * DR_STEP_BYTES; i++)
+        pk8(d, &o, s->dpat.acc[i]);
+    for (; o < PRESET_BYTES; o++)
+        d[o] = 0;
+}
+/* 0 = not one of ours (another magic, or the settings do not validate); needs settings_ok ahead */
+static int preset_unpack(settings_t *s, const uint8_t *d)
+{
+    uint32_t o = 0, i;
+    if (up32(d, &o) != SET_MAGIC)
+        return 0;
+    s->magic = SET_MAGIC;                    /* the format's: settings_ok asks for it */
+    for (i = 0; i < AT_NPARAMS; i++)
+        s->param[i] = upf(d, &o);
+    for (i = 0; i < SQ_NKNOBS; i++)
+        s->seqk[i] = upf(d, &o);
+    s->octave = (int8_t)up8(d, &o) - 2;
+    s->page = (uint8_t)up8(d, &o);
+    s->steps = (uint8_t)up8(d, &o);
+    s->scale = (uint8_t)up8(d, &o);
+    s->root = (uint8_t)up8(d, &o);
+    s->locked = (uint8_t)up8(d, &o);
+    s->tempo = (uint16_t)up16(d, &o);
+    s->mutation_counter = up32(d, &o);
+    unpack_acid(&s->pattern, d + o);
+    o += ACID_PACK_BYTES;
+    for (i = 0; i < FX_NPARAMS; i++)
+        if (i == FX_DRIVE_TYPE || i == FX_MOD_TYPE || i == FX_DLY_TIME)
+            s->fx[i] = (float)up8(d, &o);
+        else
+            s->fx[i] = upf(d, &o);
+    s->dkit = (uint8_t)up8(d, &o);
+    s->dlen = (uint8_t)up8(d, &o);
+    s->dmuting = (uint8_t)up8(d, &o);
+    s->dpage = (uint8_t)up8(d, &o);
+    s->dswing = upf(d, &o);
+    s->daccamt = upf(d, &o);
+    s->dlvl = upf(d, &o);
+    for (i = 0; i < DK_NKNOBS; i++)
+        s->dknobs[i] = upf(d, &o);
+    for (i = 0; i < DR_NPARTS * DR_NPAR; i++)
+        ((float *)s->dpar)[i] = upf(d, &o);
+    s->dmutation_counter = up32(d, &o);
+    s->dpat.seed = up32(d, &o);
+    for (i = 0; i < DR_NPARTS * DR_STEP_BYTES; i++)
+        s->dpat.gate[i] = (uint8_t)up8(d, &o);
+    for (i = 0; i < DR_NPARTS * DR_STEP_BYTES; i++)
+        s->dpat.acc[i] = (uint8_t)up8(d, &o);
+    return settings_ok(s);
+}
 
 /* the OPTIONS menu (OCT- + HOME): the unit's own choices, apart from the settings so no preset carries them (OBJ_OPTIONS,
  * saved as the menu closes). Each an index into its choices */
@@ -229,9 +447,12 @@ static at_voice_t voice;
 
 /* ---------------------------------------------- main loop -> render queue --- */
 enum { EV_NOTE_ON, EV_NOTE_OFF, EV_PARAM, EV_PANIC, EV_PLAY, EV_GENERATE, EV_MUTATE, EV_UNDO, EV_REGROW,
-       EV_ROOT, EV_FX, EV_EDIT, EV_LOAD, EV_APPLY, EV_OPTION };
+       EV_ROOT, EV_FX, EV_EDIT, EV_LOAD, EV_APPLY, EV_OPTION, EV_DSET, EV_DKIT, EV_DGEN, EV_DMUT, EV_DEDIT,
+       EV_DTRIG, EV_DREGROW };
 /* the editor's operations (EV_EDIT: a = step, b = op | value << 8) */
 enum { ED_NOTE, ED_GATE, ED_ACC, ED_SLIDE, ED_OCT, ED_SEMI, ED_ARTIC };
+/* the drum matrix's operations (EV_DEDIT: a = row, b = col | op << 6 | dir << 9) */
+enum { DED_TOGGLE, DED_ACC, DED_SHIFT, DED_CLEAR };
 #define QN 64u
 static uint32_t q[QN];
 static volatile uint32_t q_w, q_r;
@@ -292,7 +513,8 @@ static void held_off(int note)
 }
 
 /* ----------------------------------------------------- the sequencer (render) --- */
-/* Atek303Seq::process, step by step: the clock, then gate, tie and slide from the grid. */
+/* Atek303Seq::process, step by step: the clock, then gate, tie and slide from the grid. The drum
+ * track rides the same clock: its own step and length, the same sixteenth. */
 static struct {
     acid_grid_t grid;
     acid_pattern_t undo;
@@ -309,8 +531,19 @@ static struct {
     uint8_t was_gate;
     uint8_t out_note;                          /* the sequencer's note sounding on MIDI out, + 1 (0: none) */
     uint8_t out_ticks;                         /* MIDI clock out: the ticks sent into this step (6 a step) */
+    /* the drum track */
+    volatile uint8_t dstep;                    /* its own counter, its own length */
+    uint16_t dfired;                           /* the parts already fired in this drum step */
 } sq;
 static volatile uint32_t midi_count;
+static dr_machine_t drums;                     /* the eight voices */
+/* the drums' undo, and which track owns the undo REC will do (0 the 303, 1 the drums): the last
+ * one that was touched */
+static drum_pattern_t dundo;
+static uint32_t dundo_counter;
+static uint8_t dhas_undo;
+static uint8_t undo_target;
+static volatile uint8_t pend_dgen;             /* SEQ on the drums while running: waits for the next bar */
 
 static acid_params_t gen_params(void)
 {
@@ -361,6 +594,7 @@ static int seq_mutate(int layer, int lo)          /* on the page of 16 from lo, 
         sq.undo_counter = set.mutation_counter;
         set.mutation_counter = last;
         sq.has_undo = 1;
+        undo_target = 0;
         seq_render_grid();
         return 1;
     }
@@ -384,11 +618,21 @@ static int seq_mutate_all(void)
     sq.undo_counter = before_counter;
     set.mutation_counter = cursor;
     sq.has_undo = 1;
+    undo_target = 0;
     seq_render_grid();
     return 1;
 }
 static int seq_undo(void)
 {
+    if (undo_target) {                         /* REC belongs to the drums: the last one touched */
+        if (!dhas_undo)
+            return 0;
+        set.dpat = dundo;
+        set.dmutation_counter = dundo_counter;
+        dhas_undo = 0;
+        grid_version++;
+        return 1;
+    }
     if (!sq.has_undo)
         return 0;
     set.pattern = sq.undo;
@@ -396,6 +640,36 @@ static int seq_undo(void)
     sq.has_undo = 0;
     seq_render_grid();
     return 1;
+}
+
+/* ------------------------------------------------- the drum track (render) --- */
+static int drum_len(void) { return set.dlen < 1u ? 1 : set.dlen > DR_MAX_STEPS ? DR_MAX_STEPS : set.dlen; }
+static void drum_apply_params(void)            /* the parts' knobs into the engine, kit and accent with them */
+{
+    int p, k;
+    dr_kit(&drums, set.dkit < DR_NKITS ? set.dkit : 0);
+    dr_accamt(&drums, set.daccamt);
+    for (p = 0; p < DR_NPARTS; p++)
+        for (k = 0; k < DR_NPAR; k++)
+            dr_set(&drums, p, k, set.dpar[p][k]);
+}
+static void drum_regen(int new_seed)           /* the pattern from its seed, or a new one; the knobs as they are */
+{
+    drum_params_t p;
+    uint32_t seed = set.dpat.seed;
+    static uint32_t dseed_entropy;
+    if (new_seed) {
+        dseed_entropy = dseed_entropy * 1664525u + 1013904223u + sq.now;
+        seed = dseed_entropy ? dseed_entropy : 1u;
+    }
+    p.steps = drum_len();
+    p.density = set.dknobs[DK_DENSITY];
+    p.accent = set.dknobs[DK_ACCENT];
+    p.fill = set.dknobs[DK_FILL];
+    drum_generate(&set.dpat, &p, seed);
+    set.dmutation_counter = 0;
+    dhas_undo = 0;
+    grid_version++;
 }
 /* a preset chosen while the sequencer runs waits for the end of the pattern, as on a 303 (render) */
 static volatile int8_t pend_preset = -1;
@@ -406,23 +680,117 @@ static void seq_generate_now(void)
     ui_event_ok = (uint8_t)(set.locked ? seq_mutate_all() : (seq_generate(1), 1));
     ui_event = (uint8_t)(EV_GENERATE + 1);
 }
+static void drum_generate_now(void)
+{
+    if (set.locked) {                          /* LOCK mutates the drums' three layers, as the 303's */
+        drum_pattern_t before = set.dpat;
+        uint32_t before_counter = set.dmutation_counter, cursor = before_counter;
+        int layer, ok = 1;
+        for (layer = DRUM_MUT_BACKBONE; layer <= DRUM_MUT_ACCENTS && ok; layer++) {
+            uint32_t last = cursor;
+            if (!drum_mutate(&set.dpat, layer, cursor + 1u, layer == DRUM_MUT_ACCENTS ? 3 : 2, drum_len(), &last,
+                             0, DR_MAX_STEPS))
+                ok = 0;
+            else
+                cursor = last;
+        }
+        if (ok) {
+            dundo = before;
+            dundo_counter = before_counter;
+            set.dmutation_counter = cursor;
+            dhas_undo = 1;
+            undo_target = 1;
+            grid_version++;
+        } else
+            set.dpat = before;
+        ui_event_ok = (uint8_t)ok;
+    } else {
+        drum_regen(1);
+        ui_event_ok = 1;
+    }
+    ui_event = (uint8_t)(EV_GENERATE + 1);
+}
+static int drum_mutate_layer(int layer, int lo)   /* on the page of 16 from lo, as the SEQ module's pages */
+{
+    drum_pattern_t before = set.dpat;
+    uint32_t last = set.dmutation_counter;
+    if (drum_mutate(&set.dpat, layer, set.dmutation_counter + 1u, layer == DRUM_MUT_ACCENTS ? 3 : 2, drum_len(),
+                    &last, lo, lo + 16)) {
+        dundo = before;
+        dundo_counter = set.dmutation_counter;
+        set.dmutation_counter = last;
+        dhas_undo = 1;
+        undo_target = 1;
+        grid_version++;
+        return 1;
+    }
+    return 0;
+}
+/* the matrix's edit: one step of one part, and the row's shift and clear */
+static void drum_edit(int row, int col, int op, int val)
+{
+    if (row < 0 || row >= DR_NPARTS || col < 0 || col >= DR_MAX_STEPS)
+        return;
+    dundo = set.dpat;
+    dundo_counter = set.dmutation_counter;
+    dhas_undo = 1;
+    undo_target = 1;
+    if (op == DED_TOGGLE)
+        drum_set_gate(&set.dpat, row, col, !drum_gate(&set.dpat, row, col));
+    else if (op == DED_ACC) {
+        if (drum_gate(&set.dpat, row, col))
+            drum_set_acc(&set.dpat, row, col, !drum_acc(&set.dpat, row, col));
+    } else if (op == DED_SHIFT) {              /* the row a step round, inside the pattern's length */
+        int len = drum_len(), s, carry_g, carry_a;
+        if (val > 0) {
+            carry_g = drum_gate(&set.dpat, row, len - 1);
+            carry_a = drum_acc(&set.dpat, row, len - 1);
+            for (s = len - 1; s > 0; s--) {
+                drum_set_gate(&set.dpat, row, s, drum_gate(&set.dpat, row, s - 1));
+                drum_set_acc(&set.dpat, row, s, drum_acc(&set.dpat, row, s - 1));
+            }
+            drum_set_gate(&set.dpat, row, 0, carry_g);
+            drum_set_acc(&set.dpat, row, 0, carry_a);
+        } else {
+            carry_g = drum_gate(&set.dpat, row, 0);
+            carry_a = drum_acc(&set.dpat, row, 0);
+            for (s = 0; s < len - 1; s++) {
+                drum_set_gate(&set.dpat, row, s, drum_gate(&set.dpat, row, s + 1));
+                drum_set_acc(&set.dpat, row, s, drum_acc(&set.dpat, row, s + 1));
+            }
+            drum_set_gate(&set.dpat, row, len - 1, carry_g);
+            drum_set_acc(&set.dpat, row, len - 1, carry_a);
+        }
+    } else if (op == DED_CLEAR) {
+        int len = drum_len(), s;
+        for (s = 0; s < len; s++) {
+            drum_set_gate(&set.dpat, row, s, 0);
+            drum_set_acc(&set.dpat, row, s, 0);
+        }
+    }
+    grid_version++;
+}
 static volatile int8_t loaded_preset = -1;     /* the last one the render loaded, and a count the screen follows */
 static volatile uint8_t loaded_n;
 static void preset_apply(int a)                /* a preset, whole, but the page */
 {
     uint8_t page = set.page;
     int k;
-    if (a < 0 || a >= NPRESETS || !presets[a].used)
+    settings_t t;
+    if (a < 0 || a >= NPRESETS || !presets[a].used || !preset_unpack(&t, presets[a].b))
         return;
-    set = presets[a].s;
+    set = t;
     set.page = page;
     for (k = 0; k < AT_NPARAMS; k++)
         at_set(&voice, k, set.param[k]);
     for (k = 0; k < FX_NPARAMS; k++)
         fx_set(k, set.fx[k]);
+    drum_apply_params();
     acid_sanitize_ex(&set.pattern, set.scale, 1);
     sq.has_undo = 0;
+    dhas_undo = 0;
     seq_render_grid();
+    grid_version++;                            /* the drums came with the preset */
     loaded_preset = (int8_t)a;
     loaded_n++;
 }
@@ -435,6 +803,8 @@ static void seq_play(int on)
         sq.started = 1;
         sq.ticks = 0;
         sq.out_ticks = 0;
+        sq.dstep = 0;
+        sq.dfired = 0;
         if (opt.v[OP_CLOCK_OUT] && !sq.ext)
             midi_rt_out(0xFAu);                /* start: the clock follows from the first step */
     }
@@ -449,6 +819,10 @@ static void seq_play(int on)
         if (pend_gen) {                        /* stopped: what waited, now */
             pend_gen = 0;
             seq_generate_now();
+        }
+        if (pend_dgen) {
+            pend_dgen = 0;
+            drum_generate_now();
         }
         if (pend_preset >= 0) {                /* stopped: the one waiting loads now */
             int a = pend_preset;
@@ -465,18 +839,45 @@ static void seq_play(int on)
 static int seq_len(void) { return set.steps < 1 ? 1 : set.steps > ACID_MAX_STEPS ? ACID_MAX_STEPS : set.steps; }
 static void seq_next_step(void)
 {
-    int len = seq_len();
+    int len = seq_len(), dlen = drum_len();
     sq.step = (uint8_t)((sq.step + 1) % len);
+    sq.dstep = (uint8_t)((sq.dstep + 1) % dlen);
+    sq.dfired = 0;
     sq.step_time = 0.0f;
     sq.out_ticks = 0;
     if (sq.step % 16 == 0 && pend_gen) {       /* a bar ended: the new pattern from here */
         pend_gen = 0;
         seq_generate_now();
     }
+    if (sq.step % 16 == 0 && pend_dgen) {
+        pend_dgen = 0;
+        drum_generate_now();
+    }
     if (sq.step == 0 && pend_preset >= 0) {    /* the pattern ended: the one waiting starts on its first step */
         int a = pend_preset;
         pend_preset = -1;
         preset_apply(a);
+    }
+}
+/* the drum step under way: every part still unfired whose gate is set, at its swing's time.
+ * The offbeat sixteenths (the odd steps) wait, the downbeats do not. */
+static void drum_apply(void)
+{
+    int len = drum_len(), step = sq.dstep < len ? sq.dstep : 0, part;
+    float delay = 0.0f;
+    if (!sq.started || step & 1)
+        delay = dr_swing_seconds(set.dswing, sq.period);
+    if (sq.step_time < delay)
+        return;
+    dr_accamt(&drums, set.daccamt);
+    for (part = 0; part < DR_NPARTS; part++) {
+        if (sq.dfired >> part & 1u)
+            continue;
+        if (drum_gate(&set.dpat, part, step)) {
+            sq.dfired |= (uint16_t)(1u << part);
+            if (!set.dmuting)
+                dr_trigger(&drums, part, drum_acc(&set.dpat, part, step));
+        }
     }
 }
 /* the gate, tie and slide of the step under way (Atek303Seq::process), into the voice */
@@ -531,6 +932,7 @@ static void seq_chunk(uint32_t n)              /* the internal clock, n samples 
             seq_next_step();
     }
     seq_apply();
+    drum_apply();
     if (!sq.ext && opt.v[OP_CLOCK_OUT])         /* MIDI clock out, 24 a quarter: tick k of the step at k/6 of it */
         while (sq.out_ticks < 6u && sq.step_time >= (float)sq.out_ticks * sq.period * (1.0f / 6.0f)) {
             midi_rt_out(0xF8u);
@@ -690,7 +1092,7 @@ static void midi_in(void)                      /* render: the packets that came 
 }
 
 
-static float mono[APP_BLOCK], fxl[APP_BLOCK], fxr[APP_BLOCK];
+static float mono[APP_BLOCK], fxl[APP_BLOCK], fxr[APP_BLOCK], drum_bus[APP_BLOCK];
 
 /* the output stage, before MASTER: +6 dB, a limiter (both sides together: 1 ms attack, 80 ms release, to 0.8) and a
  * soft clip from 0.8 for what the attack lets through, so the peaks are rounded to just under full scale instead of
@@ -767,10 +1169,37 @@ void app_render(int32_t *lr, uint32_t n, uint32_t master_q12)
             for (k = 0; k < FX_NPARAMS; k++)
                 fx_set(k, set.fx[k]);
             acid_sanitize(&set.pattern, set.scale);
+            drum_apply_params();
             sq.has_undo = 0;
+            dhas_undo = 0;
             seq_render_grid();
+            grid_version++;
         } else if (kind == EV_OPTION)            /* OPTIONS: a fine-tuning choice into the voice */
             at_option(&voice, (int)a, (int)b);
+        else if (kind == EV_DSET) {            /* a drum part's knob: a = part, b = param << 10 | value */
+            int p = (int)a, par = (int)(b >> 10);
+            float x = (float)(b & 1023u) / 1000.0f;
+            if (p < DR_NPARTS && par < DR_NPAR) {
+                set.dpar[p][par] = x;
+                dr_set(&drums, p, par, x);
+            }
+        } else if (kind == EV_DKIT) {
+            set.dkit = (uint8_t)a;
+            dr_kit(&drums, set.dkit);
+        } else if (kind == EV_DGEN) {
+            if (sq.running && sq.started)
+                pend_dgen = 1;                 /* on at the next bar (16 steps) */
+            else
+                drum_generate_now();
+        } else if (kind == EV_DMUT) {
+            ui_event_ok = (uint8_t)drum_mutate_layer((int)a, (int)b);
+            ui_event = (uint8_t)(EV_MUTATE + 1);
+        } else if (kind == EV_DREGROW)
+            drum_regen(0);
+        else if (kind == EV_DTRIG)
+            dr_trigger(&drums, (int)a, (int)b);    /* the matrix's audition (stopped, or a key on a drum page) */
+        else if (kind == EV_DEDIT)
+            drum_edit((int)a, (int)(b & 63u), (int)((b >> 6) & 3u), (int)(b >> 9));
         else if (kind == EV_LOAD && a < NPRESETS && presets[a].used) {
             if (b)                             /* SEL or a key in the list: at once, running or not */
                 pend_preset = -1;
@@ -784,13 +1213,16 @@ void app_render(int32_t *lr, uint32_t n, uint32_t master_q12)
     midi_in();
     if (n > APP_BLOCK)
         n = APP_BLOCK;
-    for (off = 0; off < n; off += CHUNK) {     /* the sequencer at 0.7 ms, the voice between */
+    for (off = 0; off < n; off += CHUNK) {     /* the sequencer at 0.7 ms, the voices between */
         uint32_t c = n - off < CHUNK ? n - off : CHUNK;
         seq_chunk(c);
         at_render(&voice, mono + off, c);
+        dr_render(&drums, drum_bus + off, c);
         sq.now += c;
     }
     fx_tempo(sq.running && sq.ext ? sq.period : 15.0f / (float)(set.tempo < 30u ? 30u : set.tempo));
+    for (i = 0; i < n; i++)                    /* the drums join the 303 before the effects */
+        mono[i] += drum_bus[i] * set.dlvl;
     fx_process(mono, fxl, fxr, n);
     for (i = 0; i < n; i++) {
         gain_now += (gain - gain_now) * 0.004f;
@@ -806,6 +1238,7 @@ void app_panic(void)
     sq.running = 0;
     sq.started = 0;
     at_panic(&voice);
+    dr_panic(&drums);
     ui_note = -1;
 }
 
@@ -859,6 +1292,34 @@ static void settings_defaults(void)
     set.fx[FX_REV_DAMP] = 0.4f;
     set.fx[FX_REV_PRE] = 0.2f;
     set.fx[FX_REV_MIX] = 0.0f;   /* "ATK3": the same first pattern on every FM-1 */
+    /* the drum track (1.3): the 808, straight, a house beat to start with */
+    {
+        static const float LVL[DR_NPARTS] = {0.95f, 0.85f, 0.80f, 0.72f, 0.68f, 0.80f, 0.78f, 0.62f};
+        static const float DEC[DR_NPARTS] = {0.55f, 0.50f, 0.50f, 0.35f, 0.55f, 0.50f, 0.45f, 0.40f};
+        drum_params_t dp;
+        int part;
+        set.dkit = 0;
+        set.dlen = 16;
+        set.dmuting = 0;
+        set.dpage = 0;
+        set.dswing = 0.0f;
+        set.daccamt = 1.0f;
+        set.dlvl = 0.7f;
+        set.dknobs[DK_DENSITY] = 0.78f;
+        set.dknobs[DK_ACCENT] = 0.55f;
+        set.dknobs[DK_FILL] = 0.30f;
+        set.dmutation_counter = 0;
+        for (part = 0; part < DR_NPARTS; part++) {
+            set.dpar[part][DR_LEVEL] = LVL[part];
+            set.dpar[part][DR_TUNE] = 0.5f;
+            set.dpar[part][DR_DECAY] = DEC[part];
+        }
+        dp.steps = 16;
+        dp.density = set.dknobs[DK_DENSITY];
+        dp.accent = set.dknobs[DK_ACCENT];
+        dp.fill = set.dknobs[DK_FILL];
+        drum_generate(&set.dpat, &dp, 0x44523031u);   /* "DR01": the same first beat on every FM-1 */
+    }
 }
 
 #if __has_include("factory_presets.h") && !(defined(PLAT_HOST) && !defined(PLAT_WEB))
@@ -876,24 +1337,37 @@ typedef struct {
     uint32_t seed;
     float fx[FX_NPARAMS];                      /* drive (type, drive, tone, level), chorus (type, rate, depth, mix),
                                                   delay (time, feedback, tone, mix), reverb (decay, damp, pre, mix) */
+    /* the drum track: kit and length, swing, bus level, accents, the generation knobs, the seed */
+    uint8_t dkit, dlen;
+    float dswing, dlvl, daccamt;
+    float dknobs[DK_NKNOBS];
+    uint32_t dseed;
 } factory_t;
 static const factory_t FACTORY[] = {
     {"ACID CLASSIC", {.5f, .30f, .78f, .62f, .38f, .70f, 0}, {.65f, .45f, .60f, .50f, .85f}, 16, 0, 0, 125, 0x303A0001u,
-     {0, .5f, .6f, .6f, 0, .3f, .5f, 0, 3, .40f, .5f, .18f, .6f, .4f, .2f, .08f}},
+     {0, .5f, .6f, .6f, 0, .3f, .5f, 0, 3, .40f, .5f, .18f, .6f, .4f, .2f, .08f},
+     0, 16, 0.f, .70f, 1.f, {.85f, .55f, .25f}, 0x44523031u},
     {"SQUARE SQUELCH", {.5f, .24f, .86f, .70f, .30f, .75f, 1}, {.70f, .50f, .65f, .55f, .80f}, 16, 0, 2, 130, 0x303A0002u,
-     {1, .45f, .55f, .6f, 0, .3f, .5f, 0, 2, .35f, .5f, .12f, .6f, .4f, .2f, 0}},
+     {1, .45f, .55f, .6f, 0, .3f, .5f, 0, 2, .35f, .5f, .12f, .6f, .4f, .2f, 0},
+     1, 16, .12f, .75f, 1.f, {.95f, .60f, .35f}, 0x44523032u},
     {"RUBBER BASS", {.5f, .18f, .45f, .40f, .55f, .55f, 0}, {.80f, .25f, .40f, .35f, .90f}, 16, 1, 9, 120, 0x303A0003u,
-     {0, .5f, .6f, .6f, 0, .3f, .5f, 0, 3, .45f, .5f, 0, .6f, .4f, .2f, .05f}},
+     {0, .5f, .6f, .6f, 0, .3f, .5f, 0, 3, .45f, .5f, 0, .6f, .4f, .2f, .05f},
+     0, 16, 0.f, .65f, .8f, {.70f, .45f, .20f}, 0x44523033u},
     {"PHRYGIAN RAT", {.5f, .28f, .82f, .66f, .34f, .72f, 0}, {.65f, .50f, .60f, .45f, .80f}, 16, 2, 4, 135, 0x303A0004u,
-     {2, .55f, .5f, .55f, 0, .3f, .5f, 0, 3, .30f, .45f, .10f, .6f, .4f, .2f, 0}},
+     {2, .55f, .5f, .55f, 0, .3f, .5f, 0, 3, .30f, .45f, .10f, .6f, .4f, .2f, 0},
+     2, 16, 0.f, .70f, 1.f, {.80f, .50f, .45f}, 0x44523034u},
     {"DUB ACID", {.5f, .32f, .72f, .55f, .50f, .60f, 0}, {.45f, .40f, .50f, .40f, .75f}, 16, 4, 7, 118, 0x303A0005u,
-     {0, .5f, .6f, .6f, 0, .25f, .5f, .15f, 5, .62f, .35f, .32f, .75f, .5f, .3f, .18f}},
+     {0, .5f, .6f, .6f, 0, .25f, .5f, .15f, 5, .62f, .35f, .32f, .75f, .5f, .3f, .18f},
+     0, 16, .30f, .65f, .9f, {.60f, .40f, .30f}, 0x44523035u},
     {"HYPER ACID", {.5f, .35f, .90f, .80f, .28f, .85f, 0}, {.90f, .60f, .70f, .65f, .70f}, 16, 0, 0, 145, 0x303A0006u,
-     {3, .40f, .6f, .5f, 0, .3f, .5f, 0, 0, .30f, .6f, .10f, .6f, .4f, .2f, 0}},
+     {3, .40f, .6f, .5f, 0, .3f, .5f, 0, 0, .30f, .6f, .10f, .6f, .4f, .2f, 0},
+     1, 16, .18f, .85f, 1.f, {1.f, .65f, .50f}, 0x44523036u},
     {"FLANGE WORM", {.5f, .30f, .80f, .60f, .40f, .65f, 1}, {.60f, .45f, .55f, .60f, .85f}, 16, 5, 5, 128, 0x303A0007u,
-     {0, .5f, .6f, .6f, 1, .20f, .6f, .45f, 3, .35f, .5f, .10f, .6f, .4f, .2f, 0}},
+     {0, .5f, .6f, .6f, 1, .20f, .6f, .45f, 3, .35f, .5f, .10f, .6f, .4f, .2f, 0},
+     2, 16, 0.f, .70f, .9f, {.75f, .50f, .30f}, 0x44523037u},
     {"SPACE MELT", {.5f, .26f, .70f, .50f, .70f, .50f, 1}, {.40f, .55f, .40f, .60f, .90f}, 16, 3, 11, 100, 0x303A0008u,
-     {0, .5f, .6f, .6f, 0, .25f, .6f, .35f, 4, .55f, .4f, .30f, .85f, .35f, .4f, .35f}},
+     {0, .5f, .6f, .6f, 0, .25f, .6f, .35f, 4, .55f, .4f, .30f, .85f, .35f, .4f, .35f},
+     0, 32, .22f, .60f, .8f, {.55f, .40f, .25f}, 0x44523038u},
 };
 #define NFACTORY ((int)(sizeof FACTORY / sizeof FACTORY[0]))
 static void factory_presets(void)              /* into slots 0.. of an empty bank A, through the settings record */
@@ -916,11 +1390,26 @@ static void factory_presets(void)              /* into slots 0.. of an empty ban
         set.tempo = f->tempo;
         p = gen_params();
         acid_generate(&set.pattern, &p, f->seed);
+        set.dkit = f->dkit;
+        set.dlen = f->dlen;
+        set.dswing = f->dswing;
+        set.dlvl = f->dlvl;
+        set.daccamt = f->daccamt;
+        for (k = 0; k < DK_NKNOBS; k++)
+            set.dknobs[k] = f->dknobs[k];
+        {
+            drum_params_t dp;
+            dp.steps = set.dlen;
+            dp.density = set.dknobs[DK_DENSITY];
+            dp.accent = set.dknobs[DK_ACCENT];
+            dp.fill = set.dknobs[DK_FILL];
+            drum_generate(&set.dpat, &dp, f->dseed);
+        }
         for (k = 0; k < 15 && f->name[k]; k++)
             presets[i].name[k] = f->name[k];
         for (; k < 15; k++)
             presets[i].name[k] = 0;
-        presets[i].s = set;
+        preset_pack(presets[i].b, &set);
         presets[i].used = 1;
     }
     set = keep;
@@ -935,9 +1424,10 @@ static void bytes_copy(void *d, const void *s, uint32_t n)
 }
 static int settings_ok(const settings_t *t)
 {
-    int i, ok = t->magic == SET_MAGIC && t->octave >= -2 && t->octave <= 2 && t->page < 8u && t->steps >= 1u
+    int i, ok = t->magic == SET_MAGIC && t->octave >= -2 && t->octave <= 2 && t->page < 11u && t->steps >= 1u
                 && t->steps <= ACID_MAX_STEPS && t->scale < ACID_SCALES_LEN && t->root < 12u && t->tempo >= 30u
-                && t->tempo <= 300u;
+                && t->tempo <= 300u && t->dkit < DR_NKITS && t->dlen >= 1u && t->dlen <= DR_MAX_STEPS
+                && t->dpage < DR_NPARTS;
     for (i = 0; ok && i < AT_NPARAMS; i++)
         ok = t->param[i] >= 0.0f && t->param[i] <= 1.0f;
     for (i = 0; ok && i < SQ_NKNOBS; i++)
@@ -968,21 +1458,21 @@ static void store_load(void)
 #endif
         }
     }
-    for (i = 0; i < NPRESETS; i++)              /* a preset from another layout is not loaded */
-        if (presets[i].used && (presets[i].used != 1u || !settings_ok(&presets[i].s)))
+    for (i = 0; i < NPRESETS; i++) {           /* a preset from another layout is not loaded */
+        settings_t t;
+        if (presets[i].used && (presets[i].used != 1u || !preset_unpack(&t, presets[i].b)))
             presets[i].used = 0;
+    }
     if (!ok) {
         settings_defaults();
 #ifdef FACTORY_BANKS
         if (presets[0].used) {                 /* a fresh FM-1 starts on preset 01 (its name in the header) */
-            set = presets[0].s;
-            set.page = 0;
-            cur_preset = 0;
-        } else if (sizeof FACTORY_SETTINGS == sizeof set) {   /* else the state Javier's FM-1 was in */
             settings_t t;
-            bytes_copy(&t, FACTORY_SETTINGS, sizeof t);
-            if (settings_ok(&t))
+            if (preset_unpack(&t, presets[0].b)) {
                 set = t;
+                set.page = 0;
+                cur_preset = 0;
+            }
         }
 #endif
     }
@@ -992,6 +1482,7 @@ void app_init(void)
 {
     int i;
     at_init(&voice, SR);
+    dr_init(&drums, SR);
     options_load();
     for (i = 0; i < AT_NOPTS; i++)
         at_option(&voice, i, opt.v[OP_FINE + i]);
@@ -1002,6 +1493,7 @@ void app_init(void)
     fx_init(SR);
     for (i = 0; i < FX_NPARAMS; i++)
         fx_set(i, set.fx[i]);
+    drum_apply_params();
     seq_render_grid();
     sq.period = 15.0f / (float)set.tempo;
     name_rng ^= set.pattern.seed;
@@ -1009,10 +1501,12 @@ void app_init(void)
 }
 
 /* --------------------------------------------------------------------- UI --- */
-/* a knob of a page: a voice parameter (0..), or a sequencer control */
-enum { K_NONE = -1, K_SQ = 100, K_STEPS = 200, K_SCALE, K_TEMPO, K_ROOT, K_FX = 300 };
-#define NPAGES 8
-static const char *const PAGE_TITLE[NPAGES] = {"VOICE", "VOICE", "PATTERN", "PATTERN", "DELAY", "CHORUS", "DRIVE", "REVERB"};
+/* a knob of a page: a voice parameter, a sequencer control, or the drum track's */
+enum { K_NONE = -1, K_SQ = 100, K_STEPS = 200, K_SCALE, K_TEMPO, K_ROOT, K_FX = 300,
+       K_DPART = 400, K_DPAR = 410, K_DKIT = 420, K_DSWING, K_DLVL, K_DACC, K_DGEN = 430, K_DLEN = 440 };
+#define NPAGES 11
+static const char *const PAGE_TITLE[NPAGES] = {"VOICE", "VOICE", "PATTERN", "PATTERN", "DELAY", "CHORUS", "DRIVE", "REVERB",
+                                          "DRUM", "D-GEN", "KIT"};
 static const char *const PAGE_NAME[NPAGES][4] = {{"CUTOFF", "RESO", "ENV MOD", "DECAY"},
                                             {"ACCENT", "TUNE", "WAVE", "GATE"},
                                             {"DENSITY", "RANGE", "ACCENTS", "SLIDES"},
@@ -1020,7 +1514,10 @@ static const char *const PAGE_NAME[NPAGES][4] = {{"CUTOFF", "RESO", "ENV MOD", "
                                             {"TIME", "FEEDBACK", "TONE", "MIX"},
                                             {"TYPE", "RATE", "DEPTH", "MIX"},
                                             {"TYPE", "DRIVE", "TONE", "LEVEL"},
-                                            {"DECAY", "DAMP", "PRE-DELAY", "MIX"}};
+                                            {"DECAY", "DAMP", "PRE-DELAY", "MIX"},
+                                            {"PART", "LEVEL", "TUNE", "DECAY"},
+                                            {"DENSITY", "ACCENTS", "FILL", "STEPS"},
+                                            {"KIT", "SWING", "DR LVL", "ACC AMT"}};
 static const int PAGE_KNOB[NPAGES][4] = {{AT_CUTOFF, AT_RESONANCE, AT_ENVMOD, AT_DECAY},
                                     {AT_ACCENT, AT_TUNING, AT_WAVE, K_SQ + SQ_GATE},
                                     {K_SQ + SQ_DENSITY, K_SQ + SQ_RANGE, K_SQ + SQ_ACCENT, K_SQ + SQ_SLIDE},
@@ -1028,14 +1525,19 @@ static const int PAGE_KNOB[NPAGES][4] = {{AT_CUTOFF, AT_RESONANCE, AT_ENVMOD, AT
                                     {K_FX + FX_DLY_TIME, K_FX + FX_DLY_FEEDBACK, K_FX + FX_DLY_TONE, K_FX + FX_DLY_MIX},
                                     {K_FX + FX_MOD_TYPE, K_FX + FX_MOD_RATE, K_FX + FX_MOD_DEPTH, K_FX + FX_MOD_MIX},
                                     {K_FX + FX_DRIVE_TYPE, K_FX + FX_DRIVE, K_FX + FX_TONE, K_FX + FX_LEVEL},
-                                    {K_FX + FX_REV_DECAY, K_FX + FX_REV_DAMP, K_FX + FX_REV_PRE, K_FX + FX_REV_MIX}};
+                                    {K_FX + FX_REV_DECAY, K_FX + FX_REV_DAMP, K_FX + FX_REV_PRE, K_FX + FX_REV_MIX},
+                                    {K_DPART, K_DPAR + 0, K_DPAR + 1, K_DPAR + 2},
+                                    {K_DGEN + 0, K_DGEN + 1, K_DGEN + 2, K_DLEN},
+                                    {K_DKIT, K_DSWING, K_DLVL, K_DACC}};
 
 static struct {
     char msg[2][24];
     uint32_t msg_until;
     uint32_t keys, btn;
     uint32_t regrow_at;                        /* a pattern knob turned: regrow when it rests */
+    uint32_t dregrow_at;                       /* the same, for the drums' generation knobs */
     uint8_t edit, cursor;                      /* the step editor, and the step it points at */
+    uint8_t dedit, drow, dcol;                 /* the drum matrix: up, its row (the part) and its step */
     uint8_t save;                              /* the SAVE screen: 0 none, 1 slot and name, 2 OVERWRITE? */
     int8_t save_slot;                          /* where it goes */
     uint8_t save_yes;                          /* the confirmation's choice (NO by default) */
@@ -1048,6 +1550,7 @@ static struct {
     uint8_t redraw;
     uint8_t loaded_seen;
     uint8_t oct_hold, oct_used;                /* OCT- held, and used in a combination meanwhile (+ HOME, + K4) */
+    uint8_t octup_hold, octup_used;            /* OCT+ held, and used in a combination meanwhile (+ SEQ) */
     uint8_t opts, opt_cur, opt_dirty;          /* the OPTIONS menu: up, its item, changed (saved as it closes) */
 } ui;
 
@@ -1093,6 +1596,22 @@ static float knob_value(int k)                 /* 0..1, for the bar */
         return (float)(set.tempo - 30) / 270.0f;
     if (k == K_ROOT)
         return (float)set.root / 11.0f;
+    if (k == K_DPART)
+        return (float)set.dpage / (float)(DR_NPARTS - 1);
+    if (k >= K_DPAR && k < K_DPAR + DR_NPAR)
+        return set.dpar[set.dpage][k - K_DPAR];
+    if (k == K_DKIT)
+        return (float)set.dkit / (float)(DR_NKITS - 1);
+    if (k == K_DSWING)
+        return set.dswing;
+    if (k == K_DLVL)
+        return set.dlvl;
+    if (k == K_DACC)
+        return set.daccamt;
+    if (k >= K_DGEN && k < K_DGEN + DK_NKNOBS)
+        return set.dknobs[k - K_DGEN];
+    if (k == K_DLEN)
+        return (float)set.dlen / (float)DR_MAX_STEPS;
     if (k == K_FX + FX_DRIVE_TYPE)
         return set.fx[FX_DRIVE_TYPE] / (float)(FX_DRIVE_TYPES - 1);
     if (k == K_FX + FX_MOD_TYPE)
@@ -1134,6 +1653,14 @@ static void knob_text(int k, char *b)
         text_cat(b, sq.ext ? " EXT" : " BPM");
     } else if (k == K_ROOT)
         text_cat(b, ACID_NOTE_NAMES[set.root]);
+    else if (k == K_DPART)
+        text_cat(b, dr_part_label(set.dpage, set.dkit));
+    else if (k == K_DKIT)
+        text_cat(b, DR_KIT_NAME[set.dkit]);
+    else if (k == K_DSWING)
+        pct_text(0.5f + set.dswing * 0.25f, b);    /* the offbeat's seat: 50 % straight .. 75 % triplet */
+    else if (k == K_DLEN)
+        int_text(set.dlen, b);
     else if (k == K_FX + FX_DRIVE_TYPE)
         text_cat(b, FX_DRIVE_NAME[(int)set.fx[FX_DRIVE_TYPE]]);
     else if (k == K_FX + FX_MOD_TYPE)
@@ -1207,6 +1734,56 @@ static void knob_turn(int k, int32_t det)
     } else if (k == K_STEPS) {
         v = set.steps + det;
         set.steps = (uint8_t)(v < 1 ? 1 : v > ACID_MAX_STEPS ? ACID_MAX_STEPS : v);
+    } else if (k == K_DPART) {                 /* one part a detent */
+        v = set.dpage + (det > 0 ? 1 : -1);
+        if (v < 0 || v >= DR_NPARTS)
+            return;
+        set.dpage = (uint8_t)v;
+        app_say("PART", dr_part_label(set.dpage, set.dkit));
+    } else if (k >= K_DPAR && k < K_DPAR + DR_NPAR) {
+        int p = k - K_DPAR;
+        float x = fm_clampf(set.dpar[set.dpage][p] + (float)det * step, 0.0f, 1.0f);
+        if (x == set.dpar[set.dpage][p])
+            return;
+        set.dpar[set.dpage][p] = x;
+        post(EV_DSET, set.dpage, (uint32_t)p << 10 | (uint32_t)(x * 1000.0f + 0.5f));
+    } else if (k == K_DKIT) {                  /* one kit a detent */
+        v = set.dkit + (det > 0 ? 1 : -1);
+        if (v < 0 || v >= DR_NKITS)
+            return;
+        set.dkit = (uint8_t)v;
+        post(EV_DKIT, set.dkit, 0);
+        app_say("KIT", DR_KIT_NAME[set.dkit]);
+    } else if (k == K_DSWING) {
+        float x = fm_clampf(set.dswing + (float)det * step, 0.0f, 1.0f);
+        if (x == set.dswing)
+            return;
+        set.dswing = x;
+    } else if (k == K_DLVL) {
+        float x = fm_clampf(set.dlvl + (float)det * step, 0.0f, 1.0f);
+        if (x == set.dlvl)
+            return;
+        set.dlvl = x;
+    } else if (k == K_DACC) {
+        float x = fm_clampf(set.daccamt + (float)det * step, 0.0f, 1.0f);
+        if (x == set.daccamt)
+            return;
+        set.daccamt = x;
+    } else if (k >= K_DGEN && k < K_DGEN + DK_NKNOBS) {
+        float *x = &set.dknobs[k - K_DGEN];
+        float y = fm_clampf(*x + (float)det * step, 0.0f, 1.0f);
+        if (y == *x)
+            return;
+        *x = y;
+        ui.dregrow_at = plat_ms() + 120u;      /* regrow from the same seed once the knob rests */
+    } else if (k == K_DLEN) {
+        v = set.dlen + det;
+        v = v < 1 ? 1 : v > DR_MAX_STEPS ? DR_MAX_STEPS : v;
+        if ((uint32_t)v == set.dlen)
+            return;
+        set.dlen = (uint8_t)v;
+        if (ui.dedit && ui.dcol >= set.dlen)
+            ui.dcol = (uint8_t)(set.dlen - 1);
     } else if (k == K_SCALE) {
         v = set.scale + (det > 0 ? 1 : -1);
         set.scale = (uint8_t)(v < 0 ? 0 : v >= ACID_SCALES_LEN ? ACID_SCALES_LEN - 1 : v);
@@ -1268,7 +1845,7 @@ static void preset_save(int slot, const char *name)
     int i, bank, ok;
     for (i = 0; i < 15; i++)
         presets[slot].name[i] = name[i];
-    presets[slot].s = set;
+    preset_pack(presets[slot].b, &set);
     presets[slot].used = 1;
     bank = slot / PRESETS_PER_OBJ;
     ok = plat_store_save((uint32_t)(OBJ_PRESETS_A + bank), &presets[bank * PRESETS_PER_OBJ],
@@ -1366,6 +1943,7 @@ static void preset_delete(int slot)
 }
 
 static int32_t view_base(void);
+static int32_t dview_base(void);
 /* the editor: SELECT moves the cursor over the whole pattern (wrapping at its end); the page on view follows it */
 static void edit_move(int32_t d)
 {
@@ -1423,14 +2001,18 @@ static void opt_close(void)
     ui.redraw = 1;
 }
 static void home_pages(void)                   /* HOME: the four sound pages in turn (VCF, VOICE, PATT, SEQ); from the
-                                                  editor, the list or an effect page, straight to VCF */
+                                                  editor, the list, an effect or a drum page, straight to VCF */
 {
-    set.page = (uint8_t)(ui.edit || ui.list || set.page >= 3u ? 0u : set.page + 1u);
+    set.page = (uint8_t)(ui.edit || ui.dedit || ui.list || set.page >= 3u ? 0u : set.page + 1u);
     ui.edit = 0;
+    ui.dedit = 0;
     ui.list = 0;
     set_dirty = 1;
     ui.redraw = 1;
 }
+
+/* the General MIDI drum notes the keys send when a drum page auditions a part */
+static const uint8_t DR_GM_NOTE[DR_NPARTS] = {36, 38, 39, 42, 46, 45, 50, 56};
 
 static void input(void)
 {
@@ -1456,7 +2038,14 @@ static void input(void)
         }
         if ((keys & bit) && !(ui.keys & bit)) {
             uint32_t v = touch_vel(k);
-            if (ui.edit) {                     /* the editor: the key is the step's note; on to the next step */
+            if (ui.dedit) {                    /* the matrix: the key toggles the row's step, and on */
+                post(EV_DEDIT, ui.drow, (uint32_t)ui.dcol | (uint32_t)DED_TOGGLE << 6);
+                if (!sq.running)
+                    post(EV_DTRIG, ui.drow, v >= ACCENT_VEL);   /* and hear the voice */
+                ui.dcol = (uint8_t)((ui.dcol + 1) % drum_len());
+                set_dirty = 1;
+                ui.redraw = 1;
+            } else if (ui.edit) {              /* the editor: the key is the step's note; on to the next step */
                 int32_t base = 36 + 12 * (set.octave + 1) + set.root;
                 post(EV_EDIT, ui.cursor, (uint32_t)ED_NOTE | (uint32_t)(note - base + 64) << 8);
                 if (!sq.running)
@@ -1464,6 +2053,10 @@ static void input(void)
                 edit_move(1);
                 set_dirty = 1;
                 ui.redraw = 1;
+            } else if (set.page >= 8) {        /* a drum page: the key sounds the selected part */
+                post(EV_DTRIG, set.dpage, v >= ACCENT_VEL);
+                midi_note_out(DR_GM_NOTE[set.dpage], v ? v : 1u);
+                continue;                      /* (no note off to send: the drums are one-shots) */
             } else if (sq.running) {           /* transpose: the key is the new root */
                 set.root = (uint8_t)(note % 12);
                 set_dirty = 1;
@@ -1472,7 +2065,7 @@ static void input(void)
                 post(EV_NOTE_ON, (uint32_t)note, v);
             midi_note_out(note, v ? v : 1u);
         } else if (!(keys & bit) && (ui.keys & bit)) {
-            if (!sq.running)
+            if (!sq.running && !ui.dedit && set.page < 8)
                 post(EV_NOTE_OFF, (uint32_t)note, 0);   /* (in the editor too: the note heard ends) */
             midi_note_out(note, 0);
         }
@@ -1531,12 +2124,14 @@ static void input(void)
                                                   OPTIONS, + K4 in the editor STEPS */
             ui.oct_used = 0;
         }
-        else if (k == B_OCTUP)
-            octave_step(1);
+        else if (k == B_OCTUP) {
+            ui.octup_hold = 1;                 /* on release, the octave, unless a combination used it: + SEQ mute */
+            ui.octup_used = 0;
+        }
         else if (k == B_PLAY)
             post(EV_PLAY, 0, 0);
-        else if (k == B_FX) {                  /* the effect pages: in, then the next one */
-            set.page = (uint8_t)(set.page < 4u || set.page == NPAGES - 1u ? 4u : set.page + 1u);
+        else if (k == B_FX) {                  /* the effect pages: in, then the next one (4..7) */
+            set.page = (uint8_t)(set.page < 4u || set.page >= 7u ? 4u : set.page + 1u);
             set_dirty = 1;
             ui.redraw = 1;
         }
@@ -1545,10 +2140,19 @@ static void input(void)
             set.locked = (uint8_t)!set.locked;
             set_dirty = 1;
             app_say("LOCK", set.locked ? "ON: MUTATE" : "OFF: NEW SEED");
+        } else if (k == B_SEQ && ui.octup_hold) {   /* OCT+ + SEQ: the drum track's MUTE */
+            ui.octup_used = 1;
+            set.dmuting = (uint8_t)!set.dmuting;
+            set_dirty = 1;
+            app_say("DRUMS", set.dmuting ? "OFF" : "ON");
+        } else if (k == B_SEQ && set.page >= 8) {   /* on a drum page, SEQ generates the drums */
+            post(EV_DGEN, 0, 0);
+            set_dirty = 1;
         } else if (k == B_SEQ) {
             post(EV_GENERATE, 0, 0);
             set_dirty = 1;
-        } else if (k == B_EDIT) {              /* the sequence's three: the editor -> SEQ -> PATT -> the editor */
+        } else if (k == B_EDIT) {              /* the sequence's three: the editor -> SEQ -> PATT -> the editor;
+                                                * on the drums': the matrix -> DGEN -> DVOX -> the matrix */
             if (ui.edit) {
                 ui.edit = 0;
                 set.page = 3u;
@@ -1556,6 +2160,18 @@ static void input(void)
             } else if (set.page == 3u && !ui.list) {
                 set.page = 2u;
                 set_dirty = 1;
+            } else if (ui.dedit) {
+                ui.dedit = 0;
+                set.page = 9u;
+                set_dirty = 1;
+            } else if (set.page == 9u && !ui.list) {
+                set.page = 8u;
+                set_dirty = 1;
+            } else if (set.page >= 8u) {
+                ui.dedit = 1;
+                ui.list = 0;
+                if (ui.dcol >= set.dlen)
+                    ui.dcol = 0;
             } else {
                 ui.edit = 1;
                 ui.list = 0;
@@ -1563,8 +2179,15 @@ static void input(void)
                     ui.cursor = 0;
             }
             ui.redraw = 1;
+        } else if (ui.dedit && (k == B_ENV || k == B_LFO)) {   /* ENV the accent, LFO clears the row */
+            post(EV_DEDIT, ui.drow, (uint32_t)ui.dcol | (uint32_t)(k == B_ENV ? DED_ACC : DED_CLEAR) << 6);
+            set_dirty = 1;
         } else if (ui.edit && (k == B_ENV || k == B_LFO)) {
             post(EV_EDIT, ui.cursor, k == B_ENV ? ED_ACC : ED_SLIDE);
+            set_dirty = 1;
+        } else if (set.page >= 8 && (k == B_ENV || k == B_LFO || k == B_ARP)) {   /* the drums' layers */
+            post(EV_DMUT, k == B_ENV ? DRUM_MUT_BACKBONE : k == B_LFO ? DRUM_MUT_TOPS : DRUM_MUT_ACCENTS,
+                 (uint32_t)dview_base());  /* the page of 16 on view */
             set_dirty = 1;
         } else if (k == B_ENV || k == B_LFO || k == B_ARP) {
             post(EV_MUTATE, k == B_ENV ? ACID_MUT_TIME : k == B_LFO ? ACID_MUT_PITCH : ACID_MUT_ARTICULATION,
@@ -1573,7 +2196,7 @@ static void input(void)
         } else if (k == B_GLO || (k == B_HOME && ui.oct_hold)) {   /* GLOBAL (or OCT- + HOME): OPTIONS */
             ui.oct_used = 1;
             ui.opts = 1;
-            ui.edit = ui.list = 0;
+            ui.edit = ui.dedit = ui.list = 0;
             ui.redraw = 1;
         } else if (k == B_HOME)
             home_pages();
@@ -1588,6 +2211,11 @@ static void input(void)
         ui.oct_hold = 0;
         if (!ui.oct_used)
             octave_step(-1);
+    }
+    if (ui.octup_hold && !(btn >> B_OCTUP & 1u)) { /* OCT+ let go: the octave, unless OCT+ + SEQ used it */
+        ui.octup_hold = 0;
+        if (!ui.octup_used)
+            octave_step(1);
     }
     for (k = 0; k < NE; k++) {
         if ((e = plat_enc((int)k)) == 0)
@@ -1618,7 +2246,30 @@ static void input(void)
             preset_step(e);
             continue;
         }
-        if (ui.edit && k == EN_K4 && ui.oct_hold) {   /* OCT- held + K4: the pattern's length */
+        if (ui.dedit && k == EN_K4 && ui.oct_hold) {   /* OCT- held + K4: the drum pattern's length */
+            int32_t v = set.dlen + e;
+            char t[8];
+            set.dlen = (uint8_t)(v < 1 ? 1 : v > DR_MAX_STEPS ? DR_MAX_STEPS : v);
+            if (ui.dcol >= set.dlen)
+                ui.dcol = (uint8_t)(set.dlen - 1);
+            ui.oct_used = 1;
+            set_dirty = 1;
+            int_text(set.dlen, t);
+            app_say("STEPS", t);
+        } else if (ui.dedit && k == EN_SELECT) {   /* the cursor's step over the whole pattern, the page with it */
+            int32_t len = drum_len(), c = ((int32_t)ui.dcol + e) % len;
+            ui.dcol = (uint8_t)(c < 0 ? c + len : c);
+            ui.redraw = 1;
+        } else if (ui.dedit && k == EN_K1) {       /* the cursor's row: the part */
+            int32_t r = ((int32_t)ui.drow + (e > 0 ? 1 : DR_NPARTS - 1)) % DR_NPARTS;
+            ui.drow = (uint8_t)r;
+            set.dpage = ui.drow;               /* the DVOX page follows, for the same part's knobs */
+            ui.redraw = 1;
+        } else if (ui.dedit && k >= EN_K2 && k <= EN_K4) {   /* K2 the accent, K3 shift, K4 the hit */
+            static const uint8_t OP[3] = {DED_ACC, DED_SHIFT, DED_TOGGLE};
+            post(EV_DEDIT, ui.drow, (uint32_t)ui.dcol | (uint32_t)OP[k - EN_K2] << 6 | (e > 0 ? 1u : 0u) << 9);
+            set_dirty = 1;
+        } else if (ui.edit && k == EN_K4 && ui.oct_hold) {   /* OCT- held + K4: the pattern's length */
             int32_t v = set.steps + e;
             char t[8];
             set.steps = (uint8_t)(v < 1 ? 1 : v > ACID_MAX_STEPS ? ACID_MAX_STEPS : v);
@@ -1655,6 +2306,10 @@ static void input(void)
         ui.regrow_at = 0;
         post(EV_REGROW, 0, 0);
     }
+    if (ui.dregrow_at && plat_ms() >= ui.dregrow_at) {
+        ui.dregrow_at = 0;
+        post(EV_DREGROW, 0, 0);
+    }
     if (ui_event) {                            /* what a pattern button did */
         static const char *const NAME[] = {"", "", "", "", "", "GENERATE", "MUTATE", "UNDO"};
         uint8_t ev = ui_event - 1u;
@@ -1667,10 +2322,10 @@ static void input(void)
     ui.keys = keys;
     ui.btn = btn;
     {
-        /* lit: SAVE with changes, PLAY, SEQ with LOCK on, EDIT in the editor, GLOBAL in OPTIONS, SEL in the list.
+        /* lit: SAVE with changes, PLAY, SEQ with LOCK on, EDIT in an editor, GLOBAL in OPTIONS, SEL in the list.
          * In the list the white keys are its presets: the one loaded lit, the saved ones at the mid level */
         uint32_t b = btn | (set_dirty ? 1u << B_SAVE : 0u) | (sq.running ? 1u << B_PLAY : 0u)
-                     | (set.locked ? 1u << B_SEQ : 0u) | (ui.edit ? 1u << B_EDIT : 0u)
+                     | (set.locked ? 1u << B_SEQ : 0u) | (ui.edit || ui.dedit ? 1u << B_EDIT : 0u)
                      | (ui.opts ? 1u << B_GLO : 0u) | (ui.list ? 1u << B_SEL : 0u),
                  kl = keys, km = 0;
         if (ui.list) {
@@ -1710,9 +2365,24 @@ static int32_t view_base(void)
     int32_t s = ui.edit ? ui.cursor : sq.running ? sq.step : 0;
     return s / 16 * 16;
 }
+/* the drums' page of 16 on view: the matrix's cursor's, the playing drum step's, or the first */
+static int32_t dview_base(void)
+{
+    int32_t s = ui.dedit ? ui.dcol : sq.running ? sq.dstep : 0;
+    int32_t len = drum_len();
+    if (s >= len)
+        s = 0;
+    return s / 16 * 16;
+}
 static void draw_pages(int32_t x, int32_t y)   /* the four pages: the one on view lit, the ones beyond the steps dark */
 {
     int32_t k, len = seq_len(), on = view_base() / 16;
+    for (k = 0; k < 4; k++)
+        cv_rect(x + k * 15, y, 12, 7, k == on ? C_LOGO : k * 16 < len ? C_GRAY : C_LINE);
+}
+static void draw_dpages(int32_t x, int32_t y)  /* the same four marks, for the drums' length */
+{
+    int32_t k, len = drum_len(), on = dview_base() / 16;
     for (k = 0; k < 4; k++)
         cv_rect(x + k * 15, y, 12, 7, k == on ? C_LOGO : k * 16 < len ? C_GRAY : C_LINE);
 }
@@ -1741,7 +2411,8 @@ static void draw_pattern(int32_t y)
 }
 
 /* the page navigator at the foot: five tabs at a time around the page, the page boxed, arrows where there are more */
-static const char *const PAGE_TAB[NPAGES] = {"VCF", "VOICE", "PATT", "SEQ", "DELAY", "CHOR", "DRIVE", "REVRB"};
+static const char *const PAGE_TAB[NPAGES] = {"VCF", "VOICE", "PATT", "SEQ", "DELAY", "CHOR", "DRIVE", "REVRB",
+                                        "DVOX", "DGEN", "DKIT"};
 static void draw_nav(int32_t y)
 {
     int32_t first = (int32_t)set.page - 2, k;
@@ -1858,6 +2529,68 @@ static void draw_editor(void)
     }
     cv_text(2, 86, &FONT_T, "SEL STEP  K1 NOTE  K2 OCT  K3 ACC/SLD  K4 GATE", C_DIM);
     cv_text(2, 97, &FONT_T, "KEY NOTE ENV ACC LFO SLD REC UNDO OCT-+K4 LEN", C_DIM);
+    cv_blit(0, 132);
+}
+
+/* the drum matrix: eight rows (a part each) of sixteen steps, as a TR-808's grid. A hit is a lit
+ * cell, an accented one in the accent's colour; the cursor's cell framed white, the playing
+ * step's column marked above. SELECT the step, K1 the part, K2 the accent, K3 the row's shift,
+ * K4 the hit; a key toggles and moves on; LFO clears the row; REC undoes. */
+#define DM_X 30                                /* the grid's left edge; 16 columns of 13 */
+#define DM_RH 11                               /* a row's height: eight of them, 88 px */
+static void draw_matrix(void)
+{
+    const int32_t base = dview_base(), len = drum_len();
+    int32_t n, p, play = sq.running ? sq.dstep - base : -1;
+    char t[24];
+    cv_begin(240, 100, C_BLACK);
+    draw_dpages(4, 0);
+    if (sq.running && play >= 0 && play < 16)  /* the playing step, over the marks' row */
+        cv_rect(DM_X + play * ED_W, 0, ED_W, 8, RGB(0x22, 0x25, 0x2B));
+    for (p = 0; p < DR_NPARTS; p++) {
+        int32_t y = 9 + p * DM_RH;
+        cv_text(1, y + 1, &FONT_XS, dr_part_label(p, set.dkit), p == ui.drow ? C_HI : C_GRAY);
+        for (n = 0; n < 16; n++) {
+            int32_t x = DM_X + n * ED_W, i = base + n;
+            uint16_t c = RGB(28, 30, 40);
+            if (i >= len)
+                c = C_BLACK;
+            else if (drum_gate(&set.dpat, p, i))
+                c = drum_acc(&set.dpat, p, i) ? AK_ACCENT : AK_NOTE;
+            cv_rect(x + 1, y, ED_W - 2, DM_RH - 2, c);
+        }
+    }
+    {                                          /* the cursor's cell, framed */
+        int32_t x = DM_X + (ui.dcol - base) * ED_W, y = 9 + ui.drow * DM_RH;
+        if (ui.dcol - base >= 0 && ui.dcol - base < 16) {
+            cv_rect(x, y - 1, ED_W, DM_RH + 1, C_WHITE);
+            cv_rect(x + 1, y, ED_W - 2, DM_RH - 2, drum_gate(&set.dpat, ui.drow, ui.dcol)
+                                              ? (drum_acc(&set.dpat, ui.drow, ui.dcol) ? AK_ACCENT : AK_NOTE)
+                                              : RGB(28, 30, 40));
+        }
+    }
+    cv_blit(0, 32);
+    cv_begin(240, 108, C_BLACK);
+    t[0] = 0;
+    text_cat(t, dr_part_label(ui.drow, set.dkit));
+    text_cat(t, "  STEP ");
+    {
+        char nn[4];
+        int_text(ui.dcol + 1, nn);
+        text_cat(t, nn);
+        if (len > 16) {
+            text_cat(t, "  ");
+            int_text(ui.dcol / 16 + 1, nn);
+            text_cat(t, nn);
+            text_cat(t, ":");
+            int_text((len + 15) / 16, nn);
+            text_cat(t, nn);
+        }
+    }
+    cv_text(8, 4, &FONT_B, t, C_WHITE);
+    cv_text(2, 40, &FONT_T, "SEL STEP  K1 PART  K2 ACC  K3 SHIFT  K4 HIT", C_DIM);
+    cv_text(2, 52, &FONT_T, "KEY HIT  LFO CLEAR  REC UNDO  OCT-+K4 LEN", C_DIM);
+    cv_text(2, 78, &FONT_T, set.dmuting ? "DRUMS OFF (OCT+ + SEQ)" : "", AK_AMBER);
     cv_blit(0, 132);
 }
 
@@ -2012,8 +2745,24 @@ static void draw(void)
         int32_t x = cv_text(10, 6, &FONT_B, ui.msg[0], C_WHITE);
         cv_text(x + 8, 6, &FONT_B, ui.msg[1], C_HI);
     } else {
-        int32_t x = cv_text(10, 6, &FONT_B, ui.opts ? "OPTIONS" : ui.save ? "SAVE" : ui.list ? "PRESETS" : ui.edit ? "EDIT" : cur_preset >= 0 ? presets[cur_preset].name : APP_NAME, C_WHITE);
-        if (ui.edit) {                         /* the step under the cursor: number, note, accent, slide */
+        int32_t x = cv_text(10, 6, &FONT_B, ui.opts ? "OPTIONS" : ui.save ? "SAVE" : ui.list ? "PRESETS" : ui.edit ? "EDIT" : ui.dedit ? "DRUMS" : cur_preset >= 0 ? presets[cur_preset].name : APP_NAME, C_WHITE);
+        if (ui.dedit) {                        /* the matrix: the step and the part under the cursor */
+            char nn[4];
+            t[0] = 0;
+            text_cat(t, "STEP ");
+            int_text(ui.dcol + 1, nn);
+            text_cat(t, nn);
+            x = cv_text(x + 8, 8, &FONT_XS, t, C_GRAY);
+            t[0] = 0;
+            text_cat(t, dr_part_label(ui.drow, set.dkit));
+            if (drum_gate(&set.dpat, ui.drow, ui.dcol)) {
+                if (drum_acc(&set.dpat, ui.drow, ui.dcol))
+                    text_cat(t, " ACC");
+            } else
+                text_cat(t, " OFF");
+            cv_text(right - text_w(&FONT_XS, t), 8, &FONT_XS, t, C_HI);
+            note = -1;
+        } else if (ui.edit) {                         /* the step under the cursor: number, note, accent, slide */
             const acid_grid_t *gg = &sq.grid;
             int st = ui.cursor;
             t[0] = 0;
@@ -2046,7 +2795,8 @@ static void draw(void)
             cv_text(right - text_w(&FONT_XS, t), 8, &FONT_XS, t, C_HI);
             note = -1;
         } else
-            cv_text(x + 8, 8, &FONT_XS, pend_preset >= 0 || pend_gen ? "NEXT" : sq.running ? "PLAY" : "", pend_preset >= 0 || pend_gen ? AK_AMBER : C_HI);
+            cv_text(x + 8, 8, &FONT_XS, pend_preset >= 0 || pend_gen || pend_dgen ? "NEXT" : sq.running ? "PLAY" : "",
+                    pend_preset >= 0 || pend_gen || pend_dgen ? AK_AMBER : C_HI);
         if (note >= 0) {
             note_name(note, t);
             cv_text(right - 2 - text_w(&FONT_B, t), 6, &FONT_B, t, C_HI);
@@ -2069,6 +2819,10 @@ static void draw(void)
         draw_editor();
         return;
     }
+    if (ui.dedit) {
+        draw_matrix();
+        return;
+    }
     cv_begin(240, 138, C_BLACK);               /* 32 .. 170: no gap under the header */
     for (i = 0; i < 4; i++) {
         int kn = PAGE_KNOB[set.page][i];
@@ -2085,7 +2839,10 @@ static void draw(void)
     cv_blit(0, 32);
     cv_begin(240, 70, C_BLACK);
     t[0] = 0;
-    text_cat(t, set.locked ? "LOCK  " : "");
+    if (set.locked)
+        text_cat(t, "LOCK  ");
+    if (set.dmuting)
+        text_cat(t, "MUTE  ");
     text_cat(t, "OCT ");
     {
         char o[4];
@@ -2144,7 +2901,7 @@ void app_ui_init(void)
 void app_frame(void)
 {
     static int32_t last_note = -2;
-    static uint8_t last_acc, last_slide, last_step = 255, last_run;
+    static uint8_t last_acc, last_slide, last_step = 255, last_run, last_dstep = 255;
     static uint32_t last_seed, last_count, last_grid;
     static int last_batt = -2;
     uint32_t now = plat_ms();
@@ -2155,12 +2912,14 @@ void app_frame(void)
         ui.redraw = 1;
     }
     if (ui_note != last_note || ui_accent != last_acc || ui_slide != last_slide || sq.step != last_step
-        || sq.running != last_run || set.pattern.seed != last_seed || set.mutation_counter != last_count || grid_version != last_grid) {
+        || sq.dstep != last_dstep || sq.running != last_run || set.pattern.seed != last_seed
+        || set.mutation_counter != last_count || grid_version != last_grid) {
         last_grid = grid_version;
         last_note = ui_note;
         last_acc = ui_accent;
         last_slide = ui_slide;
         last_step = sq.step;
+        last_dstep = sq.dstep;
         last_run = sq.running;
         last_seed = set.pattern.seed;
         last_count = set.mutation_counter;
@@ -2278,7 +3037,51 @@ int app_expect(const char *what, int *got)
         *got = same;
     } else if (!strcmp(what, "pendgen"))
         *got = pend_gen;
-    else if (!strcmp(what, "pending"))
+    else if (!strcmp(what, "dpendgen"))
+        *got = pend_dgen;
+    else if (!strcmp(what, "dedit"))
+        *got = ui.dedit;
+    else if (!strcmp(what, "drow"))
+        *got = ui.drow;
+    else if (!strcmp(what, "dcol"))
+        *got = ui.dcol;
+    else if (!strcmp(what, "dpart"))
+        *got = set.dpage;
+    else if (!strcmp(what, "dkit"))
+        *got = set.dkit;
+    else if (!strcmp(what, "dmuting"))
+        *got = set.dmuting;
+    else if (!strcmp(what, "dlen"))
+        *got = set.dlen;
+    else if (!strcmp(what, "dstep"))
+        *got = sq.dstep;
+    else if (!strcmp(what, "dswing"))
+        *got = (int)(set.dswing * 1000.0f + 0.5f);
+    else if (!strcmp(what, "dlvl"))
+        *got = (int)(set.dlvl * 100.0f + 0.5f);
+    else if (!strcmp(what, "daccamt"))
+        *got = (int)(set.daccamt * 100.0f + 0.5f);
+    else if (!strcmp(what, "ddensity"))
+        *got = (int)(set.dknobs[DK_DENSITY] * 100.0f + 0.5f);
+    else if (!strcmp(what, "dfill"))
+        *got = (int)(set.dknobs[DK_FILL] * 100.0f + 0.5f);
+    else if (!strcmp(what, "dmutations"))
+        *got = (int)set.dmutation_counter;
+    else if (!strcmp(what, "dseed"))
+        *got = (int)(set.dpat.seed & 0x7FFFFFFFu);
+    else if (!strcmp(what, "dlevel"))          /* the selected part's knobs, 0..100 */
+        *got = (int)(set.dpar[set.dpage][DR_LEVEL] * 100.0f + 0.5f);
+    else if (!strcmp(what, "dtune"))
+        *got = (int)(set.dpar[set.dpage][DR_TUNE] * 100.0f + 0.5f);
+    else if (!strcmp(what, "ddecay"))
+        *got = (int)(set.dpar[set.dpage][DR_DECAY] * 100.0f + 0.5f);
+    else if (!strncmp(what, "dg", 2) && what[2]) {   /* dgP_S: the drum part P's gate at step S */
+        const char *u = strchr(what + 2, '_');
+        *got = u ? drum_gate(&set.dpat, atoi(what + 2), atoi(u + 1)) : 0;
+    } else if (!strncmp(what, "da", 2) && what[2]) {  /* daP_S: its accent bit */
+        const char *u = strchr(what + 2, '_');
+        *got = u ? drum_acc(&set.dpat, atoi(what + 2), atoi(u + 1)) : 0;
+    } else if (!strcmp(what, "pending"))
         *got = pend_preset;
     else if (!strcmp(what, "npresets")) {
         int k, n = 0;

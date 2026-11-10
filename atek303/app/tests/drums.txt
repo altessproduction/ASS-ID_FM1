@@ -1,0 +1,155 @@
+# ATEK303 1.3, la piste drum en el simulador host:
+#   app/build/host/atek303_host app/tests/drums.txt app/build/host
+# El patrón de fábrica sale de la semilla 0x44523031 con los knobs del preset 01: siempre el mismo.
+wait 600
+shot boot.png
+expect npresets 8
+expect dkit 0
+expect dmuting 0
+expect dlen 16
+expect dswing 0
+# el patrón de fábrica: bombo a contratiempo, caja en el backbeat
+expect dg0_0 1
+expect dg0_4 1
+expect dg0_8 1
+expect dg0_12 1
+expect dg1_4 1
+expect dg1_12 1
+expect dg3_0 1
+# suenan con el 303: PLAY, y el paso drum avanza con el mismo reloj
+tap PLAY
+wait 500
+expect running 1
+expect dstep 4
+wav drums.wav
+wait 950
+expect dstep 12
+shot playing.png
+wait 600
+tap PLAY
+wait 30
+expect running 0
+# MUTE: OCT+ mantenido + SEQ lo quita y lo pone (y al soltar OCT+, sin octava)
+press OCT+
+wait 20
+tap SEQ
+wait 20
+expect dmuting 1
+tap SEQ
+wait 20
+expect dmuting 0
+release OCT+
+wait 30
+expect octave -1
+# la página KIT (la 11.ª): el kit 909 con K1
+turn SELECT 10
+wait 30
+expect page 10
+spin K1 1
+wait 30
+expect dkit 1
+# DVOX: PART elige la voz, K2 su LEVEL
+turn SELECT -2
+wait 30
+expect page 8
+turn K1 1
+wait 30
+expect dpart 1
+turn K2 1
+wait 30
+expect dlevel 86
+# DGEN: STEPS 32, GENERATE propio, mutaciones y deshacer
+turn SELECT 1
+wait 30
+expect page 9
+spin K4 16
+wait 30
+expect dlen 32
+tap SEQ
+wait 60
+expect dpendgen 0
+expect dmutations 0
+expect dg0_0 1
+tap ENV
+wait 60
+expect dmutations 2
+tap REC
+wait 60
+expect dmutations 0
+tap ARP
+wait 60
+expect dmutations 3
+# la matriz: EDIT entra desde la página 8; el cursor, la fila, un golpe, el acento, deshacer
+tap EDIT
+wait 30
+expect page 8
+tap EDIT
+wait 30
+expect dedit 1
+expect drow 0
+expect dcol 0
+turn SELECT 3
+wait 20
+expect dcol 3
+turn K1 2
+wait 20
+expect drow 2
+expect dpart 2
+key 7 down
+wait 20
+key 7 up
+wait 30
+expect dg2_3 1
+expect dcol 4
+turn SELECT -1
+wait 20
+expect dcol 3
+turn K2 1
+wait 30
+expect da2_3 1
+expect dg2_3 1
+shot matrix.png
+tap REC
+wait 30
+expect da2_3 0
+expect dg2_3 1
+# LFO vacía la fila del cursor: un golpe a mano, y fuera
+turn K1 2
+wait 20
+expect drow 4
+turn K4 1
+wait 30
+expect dg4_3 1
+tap LFO
+wait 30
+expect dg4_3 0
+# el swing en la página KIT
+tap EDIT
+wait 30
+expect page 9
+expect dedit 0
+turn SELECT 1
+wait 20
+expect page 10
+spin K2 15
+wait 30
+expect dswing 300
+# guardar con el drum track dentro y arrancar con él
+tap HOME
+wait 30
+expect page 0
+tap SAVE
+wait 30
+expect save 1
+expect saveslot 8
+tap SAVE
+wait 100
+reboot
+wait 600
+expect dkit 1
+expect dlen 32
+expect dswing 300
+expect dmuting 0
+expect npresets 9
+expect dg4_3 0
+expect dlevel 68

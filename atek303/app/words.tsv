@@ -23,3 +23,25 @@ OCTAVES	octaves
 OCT UP	octave up
 FIFTH UP	fifth up
 SQR+SUB	square plus sub
+DRUMS	drums
+DRUM	drum
+DVOX	drum voice
+D-GEN	drum generation
+KIT	kit
+SWING	swing
+DR LVL	drum level
+ACC AMT	accent amount
+KICK	kick
+SNARE	snare
+CLAP	clap
+HAT C	closed hat
+HAT O	open hat
+TOM L	low tom
+TOM H	high tom
+COWBELL	cowbell
+RIMSHOT	rimshot
+PART	part
+FILL	fill
+MUTE	mute
+OFF	off
+ON	on
