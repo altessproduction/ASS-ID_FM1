@@ -2,6 +2,7 @@
   "what": "The ATEK303 acid groovebox plus a drum track on the same clock: eight synthesized TR-808/909/707 voices, no samples, a seeded 64-step generator with mutations and LOCK for both tracks, an 8x16 drum matrix, swing, three kits, drive, chorus, delay, reverb and eight factory presets.",
   "author": "altessproduction",
   "kinds": ["groove", "drums"],
+  "play": "https://altessproduction.github.io/ASS-ID_FM1/play/",
   "cheat": "https://github.com/altessproduction/ASS-ID_FM1/blob/main/README-DRUMS.md",
   "image": "assets/hub-image.webp",
   "color": "#E8590C"

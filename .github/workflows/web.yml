@@ -1,0 +1,56 @@
+# Construit l'émulateur navigateur (emsdk) et publie le site sur GitHub Pages :
+# la landing (site/) + l'émulateur (play/, produit par ./build.sh --web).
+# Une seule fois : Settings -> Pages -> Build and deployment -> Source « GitHub Actions ».
+# Ensuite chaque push vers main republie le site ; la carte du hub lie fmhub.json
+# « play » à https://altessproduction.github.io/ASS-ID_FM1/play/
+name: web
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Python (Pillow, comme pour le splash)
+        run: pip install pillow
+      - name: Emscripten (emcc pour le WebAssembly)
+        uses: mymindstorm/setup-emsdk@v14
+        with:
+          version: "3.1.64"
+      - name: Construire l'émulateur (./build.sh --web)
+        run: ./build.sh --web
+      - name: Assembler le site (landing + assets + émulateur)
+        run: |
+          mkdir -p out
+          cp -r site/. out/
+          cp -r assets out/assets
+          cp -r atek303/app/build/emu out/play
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: out
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

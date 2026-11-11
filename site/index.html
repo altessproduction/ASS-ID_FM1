@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ASS-ID · FM-1 — groovebox acid</title>
+<meta name="description" content="ASS-ID 1.0 pour M-VAVE FM-1 : la piste 303 d'ATEK303 et une piste drum TR-808/909/707 synthétisée, avec générateur à semée, mutations et LOCK. Jouez-y dans le navigateur.">
+<meta property="og:title" content="ASS-ID · FM-1 — groovebox acid">
+<meta property="og:description" content="La 303 d'ATEK303 et une piste drum TR-808/909/707 sur le M-VAVE FM-1. Émulateur dans le navigateur.">
+<style>
+:root{color-scheme:dark}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{background:#0f1114;color:#e8ecf3;font:16px/1.6 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;min-height:100vh;display:flex;flex-direction:column}
+a{color:#ff8a4d;text-decoration:none}
+a:hover{color:#ffb289}
+.bar{background:#16181c;border-bottom:1px solid #2a2e35;display:flex;flex-wrap:wrap;align-items:center;gap:4px 22px;
+ padding:14px max(18px,calc(50vw - 540px));position:sticky;top:0;z-index:5}
+.bar .home{color:#fff;font-weight:700;font-size:17px;margin-right:10px}
+.bar .home b{color:#E8590C}
+.bar a{color:#9aa2b5;padding:4px 0;font-weight:600}
+.bar a:hover{color:#ff8a4d}
+.bar .src{margin-left:auto}
+.hero{max-width:1020px;width:100%;margin:0 auto;padding:60px 24px 30px;display:grid;
+ grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:52px;align-items:center}
+.hero img{width:100%;height:auto;border-radius:16px;box-shadow:0 24px 70px rgba(0,0,0,.6)}
+.kicker{color:#E8590C;font-weight:700;font-size:13px;letter-spacing:.16em;text-transform:uppercase;margin:0 0 14px}
+.lead{font-size:clamp(21px,2.4vw,27px);line-height:1.35;font-weight:650;margin:0 0 14px}
+.sub{color:#9aa2b5;font-size:16px;line-height:1.65;margin:0 0 30px}
+.btns{display:flex;flex-wrap:wrap;gap:12px}
+.btn{display:inline-flex;align-items:center;gap:8px;min-height:46px;padding:0 22px;border-radius:999px;font-weight:700;font-size:15px}
+.pri{background:#E8590C;color:#fff}
+.pri:hover{background:#ff6a1f;color:#fff}
+.sec{border:1.5px solid #2a2e35;color:#e8ecf3}
+.sec:hover{border-color:#E8590C;color:#ff8a4d}
+.cards{max-width:1020px;width:100%;margin:20px auto 0;padding:0 24px 40px;display:grid;
+ grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:16px}
+.card{background:#16181c;border:1px solid #2a2e35;border-radius:14px;padding:20px 22px}
+.card h3{margin:0 0 8px;font-size:16px;color:#fff}
+.card h3 em{font-style:normal;color:#E8590C}
+.card p{margin:0;color:#9aa2b5;font-size:14.5px;line-height:1.6}
+.foot{border-top:1px solid #2a2e35;color:#6f7787;font-size:13px;text-align:center;padding:22px 18px 30px}
+.foot a{color:#9aa2b5}
+@media (max-width:720px){.hero{grid-template-columns:1fr;gap:30px;padding-top:40px}.bar .src{display:none}}
+</style>
+</head>
+<body>
+<nav class="bar">
+  <span class="home">ASS<b>-ID</b> · FM-1</span>
+  <a href="play/">Jouer</a>
+  <a href="https://github.com/altessproduction/ASS-ID_FM1/releases/tag/v1.0">Firmware .fwsc</a>
+  <a href="https://github.com/altessproduction/ASS-ID_FM1/blob/main/README-DRUMS.md">Guide drum</a>
+  <a class="src" href="https://github.com/altessproduction/ASS-ID_FM1">GitHub</a>
+</nav>
+
+<header class="hero">
+  <img src="assets/ass-id-fm1-logo.png" alt="Logo ASS-ID · FM-1">
+  <div>
+    <p class="kicker">M-VAVE FM-1 · ASS-ID 1.0</p>
+    <p class="lead">La 303 d'ATEK303 et une piste drum TR-808 / 909 / 707, dans votre navigateur.</p>
+    <p class="sub">Une groovebox acid autonome : la voix acid et son générateur de patterns, plus huit voix de
+    percussion synthétisées de toutes pièces (aucun sample) sur la même horloge. Semée, mutations, LOCK,
+    matrice 8×16, swing, trois kits — jouez directement ci-dessous, ou installez le firmware sur votre FM-1.</p>
+    <p class="btns">
+      <a class="btn pri" href="play/">▶ Jouer dans le navigateur</a>
+      <a class="btn sec" href="https://github.com/altessproduction/ASS-ID_FM1/releases/tag/v1.0">⬇ Télécharger le .fwsc</a>
+    </p>
+  </div>
+</header>
+
+<section class="cards">
+  <div class="card">
+    <h3><em>Piste 303</em> — ATEK303</h3>
+    <p>L'intégralité du moteur acid d'ATEK303 : 14 oscillateurs en WAVE, GLO,
+    drive → chorus → delay → reverb, éditeur piano roll 64 pas.</p>
+  </div>
+  <div class="card">
+    <h3><em>Piste drum</em> — TR 808 / 909 / 707</h3>
+    <p>KICK, SNARE, CLAP, hats, toms, cowbell — synthétisées, trois kits
+    commutables d'un knob, matrice d'édition 8×16, swing, bus et niveau dédiés.</p>
+  </div>
+  <div class="card">
+    <h3><em>Génération</em> — semée &amp; mutations</h3>
+    <p>Une semée donne toujours le même groove ; ENV, LFO et ARP la déplient
+    couche par couche. LOCK fige, REC défait — pour les deux pistes.</p>
+  </div>
+</section>
+
+<footer class="foot">
+  La voix acid est <a href="https://github.com/animatek/FM1-Animatek">ATEK303</a> par Animatek,
+  sur Open303 par Robin Schmidt ;
+  base matérielle <a href="https://github.com/charlesvestal/fm1-base">fm1-base</a> par Charles Vestal
+  · piste drum et publication ASS-ID par altessproduction ·
+  <a href="https://github.com/altessproduction/ASS-ID_FM1/blob/main/LICENSE">GPL-3.0-or-later</a> ·
+  <a href="https://github.com/altessproduction/ASS-ID_FM1/actions/workflows/web.yml">construit sur GitHub</a>
+</footer>
+</body>
+</html>

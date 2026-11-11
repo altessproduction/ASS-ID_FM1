@@ -12,6 +12,10 @@ même horloge.
 Basé sur **ATEK303 1.2** (dépôt [animatek/FM1-Animatek](https://github.com/animatek/FM1-Animatek),
 branche taguée `atek303-v1.2`). **GPL-3.0-or-later**, comme l'original.
 
+**▶ Jouer dans le navigateur** : <https://altessproduction.github.io/ASS-ID_FM1/play/>
+— l'émulateur, construit par le CI (workflow `web`) et publié sur GitHub Pages
+à chaque push de `main` ; la landing sert le firmware et le guide drum.
+
 ---
 
 ## Qu'est-ce que c'est ?
