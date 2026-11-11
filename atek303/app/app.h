@@ -5,8 +5,8 @@
 #include <stdint.h>
 #include "plat.h"
 
-#define APP_NAME "ATEK303"
-#define APP_SPLASH_RGB RGB(44, 127, 255)       /* Animatek blue */
+#define APP_NAME "ASS-ID"
+#define APP_SPLASH_RGB RGB(33, 33, 33)         /* ASS-ID black, as the splash art */
 #define APP_BLOCK 256u                         /* frames per audio block: 5.8 ms at 44.1 kHz */
 #define APP_TOUCH                              /* velocity from the keys: a hard press is an accent */
 #define APP_SPLASH                             /* our own first screen: the acid smiley (app_splash) */

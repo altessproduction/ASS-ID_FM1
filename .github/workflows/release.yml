@@ -1,0 +1,21 @@
+# Compile le firmware ASS-ID sur GitHub et signe les packages : la carte sur
+# thefirmwarehub.com affiche « Built from source on GitHub » pour exactement ces
+# fichiers. Voir https://thefirmwarehub.com/kb (How to sign your release).
+# Un push de tag vX.Y suffit ; un tag = une release avec le .fwsc signé attaché.
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+
+jobs:
+  build:
+    uses: zvenson/fm1-build/.github/workflows/build.yml@v1
+    permissions:
+      contents: write        # the release
+      id-token: write        # the signing certificate
+      attestations: write    # the attestation
+    with:
+      build: ./build.sh --release "${GITHUB_REF_NAME#v}"
+      packages: atek303/app/build/*.fwsc
+      test: sh atek303/tests/host_suites.sh

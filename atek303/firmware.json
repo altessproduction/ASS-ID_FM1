@@ -1,19 +1,19 @@
 {
   "schema": 1,
-  "id": "atek303",
-  "name": "ATEK303",
-  "author": "Animatek",
+  "id": "ass-id",
+  "name": "ASS-ID",
+  "author": "altessproduction",
   "license": "GPL-3.0-or-later",
   "tagline": "The ATEK303 acid voice and a TR drum track on the M-VAVE FM-1",
   "description": "ATEK303 turns the M-VAVE FM-1 into an acid groovebox: the ATEK303 engine (Open303) and its acid pattern generator, plus a drum track: eight analogue TR-808/909/707 voices (kick, snare, clap, hats, toms, cowbell/rim) with their own 64-step sequencer on the same clock. Press PLAY and a line and a beat play; generate, mutate and undo both patterns (LOCK mutates), edit the 303 in a piano roll and the drums in an 8x16 matrix, swing the drums, switch kits, add drive, chorus, delay and reverb. 14 WAVE oscillators, LEVEL/TUNE/DECAY per part, 8 factory presets in 32 slots (DR64), MIDI in and out.",
   "tags": ["synth", "sequencer", "groovebox"],
   "install": "https://thefirmwarehub.com/",
-  "source": "https://github.com/animatek/FM1-Animatek",
+  "source": "https://github.com/altessproduction/ASS-ID_FM1",
   "screenshot": "art/screen.png",
   "hardware": {
     "models": ["FM-1"],
     "flash": ["856014", "B36014"],
     "features": ["usb-audio-in", "velocity", "pressure", "screen-reader", "backup"]
   },
-  "credits": "Built on fm1-base (Charles Vestal) and felucca-bsp (Hügelton Instruments). The voice is ATEK303 by Animatek, on Open303 by Robin Schmidt."
+  "credits": "Built on fm1-base (Charles Vestal) and felucca-bsp (Hügelton Instruments). The voice is ATEK303 by Animatek, on Open303 by Robin Schmidt. The drum track and the ASS-ID release by altessproduction."
 }

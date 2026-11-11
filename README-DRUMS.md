@@ -111,8 +111,9 @@ git am patch/0001-ATEK303-1.3-*.patch    # ou copiez le dossier atek303/
 herramientas/clonar-terceros.sh          # fm1-base dans terceros/ (base/ pointe dessus)
 cd atek303
 sh build.sh --host                       # le simulateur
-app/build/host/atek303_host app/tests/drums.txt app/build/host      # le test drum
-app/build/host/atek303_host app/tests/basic.txt app/build/host      # la régression
+app/build/host/ass-id_host app/tests/drums.txt app/build/host       # le test drum
+app/build/host/ass-id_host app/tests/basic.txt app/build/host       # la régression
+sh tests/host_suites.sh                             # ou les neuf suites d'un coup
 sh build.sh                              # le .fwsc (toolchain JieLi requis)
 ```
 

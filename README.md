@@ -74,12 +74,17 @@ raccourci : [README-DRUMS.md](README-DRUMS.md).
 ```sh
 git clone https://github.com/altessproduction/ASS-ID_FM1.git
 cd ASS-ID_FM1
-herramientas/clonar-terceros.sh          # fm1-base dans terceros/ (base/ pointe dessus)
-cd atek303
-sh build.sh --host                       # le simulateur host
-app/build/host/atek303_host app/tests/drums.txt app/build/host      # le test drum (63 vérifs)
-sh build.sh                              # le .fwsc (toolchain JieLi requis)
+./build.sh --host                        # le simulateur host (fm1-base cloné au besoin)
+atek303/app/build/host/ass-id_host atek303/app/tests/drums.txt atek303/app/build/host    # le test drum (63 vérifs)
+sh atek303/tests/host_suites.sh         # ou les neuf suites d'un coup
+./build.sh --release 1.0                 # le .fwsc (toolchain JieLi requis en local)
 ```
+
+Un **tag `vX.Y` poussé sur GitHub** fait tout à ta place :
+`.github/workflows/release.yml` (le workflow partagé du hub, `zvenson/fm1-build`)
+installe le toolchain JieLi, compile, joue les neuf suites du simulateur, signe
+les packages et publie la release avec le `.fwsc` attaché — c'est le fichier
+qu'installe [thefirmwarehub.com](https://thefirmwarehub.com).
 
 La 1.3 a été développée et vérifiée entièrement dans le simulateur host (le
 même code que le firmware) : les **8 tests de la 1.2 passent** (basic, clock,
@@ -89,9 +94,10 @@ controls, editor, fx, options, presets, steps64), plus
 les 24 voix des trois kits sonnent, meurent, pas de NaN, même semée = même
 pattern).
 
-**Reste à faire sur le vrai matériel** : compiler le `.fwsc` avec le toolchain
-JieLi, mesurer le CPU dans fm1-emu, et régler les derniers gains à l'oreille
-(tout est dans des constantes nommées en tête de
+**Reste à faire avant la mise en ligne** : pousser le tag `v1.0` (GitHub compile
+alors le `.fwsc` signé tout seul), vérifier sur un vrai FM-1 (installation depuis
+V15, retour en arrière, identité USB — voir la checklist du hub), et régler les
+derniers gains à l'oreille (tout est dans des constantes nommées en tête de
 [drum_voice.c](atek303/app/dsp/drum_voice.c)). Les presets **AT64 de la 1.2 ne
 se chargent pas** — format DR64 oblige ; après un tour de presets sur la
 machine, `tools/factory_from_backup.py --magic DR64` reconstruit la table
@@ -104,6 +110,9 @@ atek303/            le firmware complet (source), prêt à compiler
   app/dsp/          moteurs : acid_pattern, atek_voice, drum_voice, drum_pattern, fx
   app/tests/        les suites de tests du simulateur (drums.txt inclus)
   tests/            tests de rendu audio (drum_render.c inclus)
+build.sh            l'entrée de build (CI et local) : fm1-base, puis atek303/
+.github/workflows/  la release signée sur tag vX.Y (le workflow partagé du hub)
+fmhub.json          la fiche du firmware pour thefirmwarehub.com
 README-DRUMS.md     la piste drum en détail : pages, raccourcis, ce qui a été vérifié
 README-ANIMATEK.md  le guide du projet FM1-Animatek (en espagnol) : émulateur, docs, rescousse
 CHANGELOG.md        l'historique (entrée 1.3 « DRUMS »)
