@@ -139,3 +139,5 @@ assets/             le logo ASS-ID
 L'ensemble est sous **GPL-3.0-or-later** ([LICENSE](LICENSE)) : vous êtes libres
 de l'étudier, le modifier et le redistribuer, à condition de garder la même
 licence. Ni le firmware M-VAVE ni les copies de flash n'entrent dans ce dépôt.
+
+You can also try ASS-ID in the browser, no flashing needed, in the free community [FM-1 Emulator](https://fm1-emulator.atst.tools/).
